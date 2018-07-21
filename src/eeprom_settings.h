@@ -141,6 +141,7 @@ class EepromConfigClass {
     settings.log_freq = val;
     EEPROM.put(EEPARAM_SETTINGS_START, settings);
     EEPROM.commit();
+    return true;
   }
   boolean store_conn_info(const char* new_ssid, const char* new_password, const char* mqtt_server){
     if (strlen(new_ssid) > sizeof(settings.ssid)){
@@ -157,6 +158,7 @@ class EepromConfigClass {
     EEPROM.put(EEPARAM_SETTINGS_START, settings);
     EEPROM.commit();
     validateSettings();
+    return true;
   }
 };
 

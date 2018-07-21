@@ -62,6 +62,7 @@ uint8_t iButtonState = 0;
 uint8_t cnt_motion_sensor_countdown=0xFF;
 #endif
 unsigned int batt;
+int pwmdir = 0;
 double battV;
 
 void connect_mqtt();
@@ -237,7 +238,6 @@ void handle_serial_cmd(){
 
 
 void loop(void) {
-  int i = 0;
   response_loop(20);
   // read sensors
   batt_voltage = ESP.getVcc()/(float)1000;
