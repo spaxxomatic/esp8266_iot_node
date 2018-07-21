@@ -1,4 +1,4 @@
-//#define SERIAL_DEBUG_ON
+#define SERIAL_DEBUG_ON
 
 #include <DNSServer.h>
 #include <ESP8266WiFi.h>
@@ -6,13 +6,13 @@
 #include <ESP8266WebServer.h>
 #include <EEPROM.h>
 #include <ArduinoJson.h>
+#include "config.h"
 #include "eeprom_settings.h"
 #include <AsyncMqttClient.h>
 #include <WiFiManager.h>
 #ifdef HAS_DHT_SENSOR
 #include "DHT.h"
 #endif
-
 
 #ifdef HAS_DHT_SENSOR
 #define DHTTYPE DHT11
@@ -99,7 +99,7 @@ void enterWifiManager(){
 }
 
 //typedef struct {
-char actorr_topic[32] ;
+char actor_topic[32] ;
 char config_topic[32];
 char sensor_topic[32];
 //} mqtt_subscribed_topics_t;
@@ -113,7 +113,7 @@ void setup(void) {
   byte mac[6];
   WiFi.macAddress(mac);
   sprintf(str_mac,"%02x%02x%02x%02x%02x%02x",mac[0],mac[1],mac[2], mac[3], mac[4], mac[5]  );
-  sprintf(actorr_topic, "/actor/%s", str_mac);
+  sprintf(actor_topic, "/actor/%s", str_mac);
   sprintf(config_topic, "/config/%s", str_mac);
   sprintf(sensor_topic, "/sensor/%s", str_mac);
   Serial.println(str_mac);
@@ -150,7 +150,7 @@ void setup(void) {
   //mqtt config: id/name, placeholder/prompt, default, length
   ESP.wdtEnable(4000);
   pinMode(ACTOR_PIN, OUTPUT);
-  pinMode(SONOFF_LED, OUTPUT);
+  pinMode(LED_BUILTIN, OUTPUT);
   #ifdef HAS_BUTTON
   pinMode(BUTTON_PIN, INPUT_PULLUP);
   #endif
@@ -231,6 +231,10 @@ void handle_serial_cmd(){
       Serial.println(EepromConfig.settings.log_freq);
       Serial.print("MQTT server:");
       Serial.println(EepromConfig.settings.mqtt_server);
+      Serial.print("IP:");
+      Serial.println(WiFi.localIP());
+      Serial.print("IP:");
+      Serial.println(WiFi.localIP());
      }
   }
 }
@@ -278,7 +282,7 @@ void loop(void) {
   SERIAL_DEBUG( tempPayloadBuffer) ;
   //mqtt.publish("unconfigured/resetReason", ESP.getResetReason());
   if (EepromConfig.settings.deepsleep > 0){
-    //let ESP go to deep sleep
+    //TODO: let ESP go to deep sleep
   }
 
   response_loop(100);
@@ -347,7 +351,7 @@ void response_loop(unsigned int with_wait){
     #endif
   }
   pwmval+=pwmdir;
-  analogWrite(SONOFF_LED, pwmval);
+  analogWrite(LED_BUILTIN, pwmval);
   if (pwmval >=1020) pwmdir = -10;
   if (pwmval <= 10) pwmdir = 10;
   if (bBlink) {
@@ -368,7 +372,7 @@ void response_loop(unsigned int with_wait){
   if (f_handleActorEvent){
     digitalWrite(ACTOR_PIN, EepromConfig.settings.actor_state );
     //digitalWrite(SONOFF_LED, !EepromConfig.settings.actor_state );
-    snprintf(tempTopicBuffer, sizeof(tempTopicBuffer), "%s/state", actorr_topic);
+    snprintf(tempTopicBuffer, sizeof(tempTopicBuffer), "%s/state", actor_topic);
     itoa(EepromConfig.settings.actor_state,tempPayloadBuffer,10);
     mqttClient.publish(tempTopicBuffer, 1, true, tempPayloadBuffer);
     f_handleActorEvent = false;
@@ -443,7 +447,7 @@ void handleActorMsg(char* payload, int length){
     }else{
       EepromConfig.settings.actor_state = 1;
     }
-    //snprintf(tempTopicBuffer, sizeof(tempTopicBuffer), "%s/state", actorr_topic);
+    //snprintf(tempTopicBuffer, sizeof(tempTopicBuffer), "%s/state", actor_topic);
     //mqttClient.publish(tempTopicBuffer, 1, true, payload);
   }
 
@@ -458,7 +462,7 @@ void onMqttMessage(char* topic, char* payload, AsyncMqttClientMessageProperties 
     //SERIAL_DEBUG("%.*s", 4, buff + 10));
     if (strcmp(topic, config_topic) == 0){
       handleConfigMsg(payload, len);
-    }else if (strcmp(topic, actorr_topic) == 0){
+    }else if (strcmp(topic, actor_topic) == 0){
       handleActorMsg(payload, len);
     }
   }
@@ -467,13 +471,14 @@ void onMqttMessage(char* topic, char* payload, AsyncMqttClientMessageProperties 
 
 
 void onMqttConnect(bool sessionPresent) {
-  SERIAL_DEBUG("** Connected to broker");
+  SERIAL_DEBUG("** onMqttConnect:");
+  SERIAL_DEBUG(sessionPresent );
   //SERIAL_DEBUG("Session ");
   //SERIAL_DEBUG(sessionPresent);
   //mqttClient.subscribe(config_topic, 2);
   //SERIAL_DEBUG("Subscribing to ");
   //SERIAL_DEBUG(actorr_topic);
-  mqttClient.subscribe(actorr_topic, 2);
+  mqttClient.subscribe(actor_topic, 2);
   //SERIAL_DEBUG(config_topic);
   mqttClient.subscribe(config_topic, 2);
 

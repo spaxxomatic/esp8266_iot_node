@@ -26,4 +26,9 @@ and to /actor/<MAC_ADDRESS> for reading the actor state (in case of sonoff modul
 
 
 ### Future improvements (Todo's)
-* Static TCP/IP adress configurable via MQTT - would allow faster reboots 
+* Static TCP/IP adress configurable via MQTT - would allow faster reboots
+
+### Useful links
+NodeMCU schematic https://github.com/nodemcu/nodemcu-devkit-v1.0/blob/master/NODEMCU_DEVKIT_V1.0.PDF
+
+Sonoff schematic https://www.itead.cc/wiki/File:Sonoff-Schematic.pdf

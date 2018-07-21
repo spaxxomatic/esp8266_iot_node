@@ -1,42 +1,49 @@
+#include "config.h"
 #ifndef config_h
 #define config_h
 
 //############## parameters ###########
-/*const char* mqtt_clientname = "esp8266_room1"; // will also be used on shiftr.io
-const char* ssid = "fasole";
-const char* password = "11213141";
-//const char* mqtt_server = "192.168.1.11";
-const char* topic = "unconfigured";
-*/
-//############## parameters ###########
 #define HAS_LOCATION 0x0b00000001
-#define HAS_SENSOR 0b00000010
+//#define HAS_SENSOR 0b00000010
 #define MQTTSETTING_HAS_SERVER 0b00000100
 //#define HAS_DHT_SENSOR
 #define OS_MAIN_TIMER_MS 500
 
-#define ACTOR_PIN 12
-#define SONOFF_LED 13
-#define SONOFF_PIN_5 14
-
+#if BOARDTYPE == NODEMCU
+  #define BOARD_CONFIG_OK
+  #define ACTOR_PIN 12
+  #ifdef HAS_MOTION_SENSOR
+    #define MOTION_SENSOR_PIN 14
+    #define MOTION_SENSOR_DEFAULT_TIMER 4
+  #endif
 //#define HAS_BUTTON
-#ifdef HAS_BUTTON
-#define BUTTON_PIN SONOFF_PIN_5
+  #ifdef HAS_BUTTON
+  #define BUTTON_PIN SONOFF_PIN_5
+  #endif
 #endif
 
-#define HAS_MOTION_SENSOR
-#ifdef HAS_BUTTON
-#error Do not activate both motion sensor and button !
-#endif
-#ifdef HAS_MOTION_SENSOR
-#define MOTION_SENSOR_PIN SONOFF_PIN_5
-#define MOTION_SENSOR_DEFAULT_TIMER 4
+
+#if BOARDTYPE == SONOFF
+  #define BOARD_CONFIG_OK
+  #define ACTOR_PIN 12
+  #define LED_BUILTIN 13
+  #define SONOFF_PIN_5 14
+
+  #ifdef HAS_BUTTON
+    #define BUTTON_PIN SONOFF_PIN_5
+  #endif
+  #ifdef HAS_MOTION_SENSOR
+    #define MOTION_SENSOR_PIN SONOFF_PIN_5
+    #define MOTION_SENSOR_DEFAULT_TIMER 4
+  #endif
 #endif
 
+#ifndef BOARD_CONFIG_OK
+#error Board is not configured or config wrong. Use #define BOARDTYPE=<SONOFF|NODEMCU
+#endif
 
 #define CONFIG_UNITIALIZED 0x01
 #define CONFIG_SAVED 0xDD
-
 
 typedef struct {
   char ssid[16];
@@ -131,11 +138,13 @@ class EepromConfigClass {
       settings.mqtt_configured |= HAS_LOCATION;
     EEPROM.put(EEPARAM_SETTINGS_START, settings);
     EEPROM.commit();
+    return true;
   }
   boolean store_deepsleep(int val){
     settings.deepsleep = val;
     EEPROM.put(EEPARAM_SETTINGS_START, settings);
     EEPROM.commit();
+    return true;
   }
   boolean store_log_freq(int val){
     settings.log_freq = val;
