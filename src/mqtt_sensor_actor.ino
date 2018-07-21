@@ -220,12 +220,21 @@ void handle_serial_cmd(){
       SERIAL_DEBUG( "Read params");
       Serial.print("Log freq:");
       Serial.println(EepromConfig.settings.log_freq);
+      Serial.print("IP:");
+      Serial.println(WiFi.localIP());
       Serial.print("MQTT server:");
       Serial.println(EepromConfig.settings.mqtt_server);
-      Serial.print("IP:");
-      Serial.println(WiFi.localIP());
-      Serial.print("IP:");
-      Serial.println(WiFi.localIP());
+      Serial.print("Actor:");
+      Serial.println(actor_topic);
+      Serial.print("Sensor:");
+      Serial.println(sensor_topic);
+      Serial.print("Config:");
+      Serial.println(config_topic);
+      Serial.print("Actor state: ");
+      Serial.println(EepromConfig.settings.actor_state);
+      Serial.print("Log freq");
+      Serial.println(EepromConfig.settings.log_freq);
+
      }
   }
 }
@@ -278,8 +287,8 @@ void loop(void) {
 
   response_loop(100);
   for(int i = 0; i < EepromConfig.settings.log_freq; i++){
-    for (int j= 0; j < 10; j++){
-      response_loop(100);
+    for (int j= 0; j < 20; j++){
+      response_loop(50);
     }
   }
 }
@@ -309,7 +318,7 @@ void response_loop(unsigned int with_wait){
        //only the first press after a depress shall trigger a state change
        EepromConfig.settings.actor_state = !EepromConfig.settings.actor_state ;
        f_handleActorEvent = true;
-       //bPrevButtonState = bButtonState;
+       pwmval = 1024;
      }
     #endif
     #ifdef HAS_MOTION_SENSOR
@@ -419,7 +428,7 @@ void handleConfigMsg(char* payload, unsigned int length){
           if (val >= MOTION_SENSOR_DEFAULT_TIMER){
             EepromConfig.storeMotionSensorOffTimer(val);
           }else{
-            SERIAL_DEBUG ("No mst val or invalid");
+            SERIAL_DEBUG ("Invalid mot sensor timer val");
           }
         }
         #endif
