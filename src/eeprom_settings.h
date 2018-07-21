@@ -1,7 +1,5 @@
-#include "config.h"
-#ifndef config_h
-#define config_h
-
+#ifndef eeprom_settings_h
+#define eeprom_settings_h
 //############## parameters ###########
 #define HAS_LOCATION 0x0b00000001
 //#define HAS_SENSOR 0b00000010
@@ -9,7 +7,7 @@
 //#define HAS_DHT_SENSOR
 #define OS_MAIN_TIMER_MS 500
 
-#if BOARDTYPE == NODEMCU
+#if BOARDTYPE == NODEMCU_BOARD
   #define BOARD_CONFIG_OK
   #define ACTOR_PIN 12
   #ifdef HAS_MOTION_SENSOR
@@ -23,7 +21,7 @@
 #endif
 
 
-#if BOARDTYPE == SONOFF
+#if BOARDTYPE == SONOFF_BOARD
   #define BOARD_CONFIG_OK
   #define ACTOR_PIN 12
   #define LED_BUILTIN 13
@@ -39,7 +37,7 @@
 #endif
 
 #ifndef BOARD_CONFIG_OK
-#error Board is not configured or config wrong. Use #define BOARDTYPE=<SONOFF|NODEMCU
+#error Board is not configured or config wrong. Use BOARDTYPE <SONOFF_BOARD|NODEMCU_BOARD
 #endif
 
 #define CONFIG_UNITIALIZED 0x01

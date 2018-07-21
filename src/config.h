@@ -1,5 +1,10 @@
-// #define BOARDTYPE SONOFF
-// #define BOARDTYPE NODEMCU
+#ifndef config_h
+#define config_h
+#define SONOFF_BOARD 1
+#define NODEMCU_BOARD 2
+
+//#define BOARDTYPE SONOFF_BOARD
+#define BOARDTYPE NODEMCU_BOARD
 
 //is a motion sensor conencted?
 #define HAS_MOTION_SENSOR
@@ -14,3 +19,5 @@
 #endif
 #endif
 #endif
+
+#endif //config_h
