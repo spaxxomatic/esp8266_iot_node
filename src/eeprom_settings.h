@@ -39,7 +39,9 @@ const char PPARAM_PASSWORD[16] PROGMEM = "11213141";
 class EepromConfigClass {
   public:
   settings_t settings;
+  #ifdef HAS_MOTION_SENSOR
   uint8_t motion_sensor_off_timer = MOTION_SENSOR_DEFAULT_TIMER;
+  #endif
   void begin(){ //read all params from eeprom
     EEPROM.begin(1024);
     readEepromParams();
@@ -56,12 +58,14 @@ class EepromConfigClass {
     EEPROM.write(FLOC_EEPARAM_SAVED, CONFIG_SAVED);
     EEPROM.commit();
   }
+
+  #ifdef HAS_MOTION_SENSOR
   void storeMotionSensorOffTimer(uint8_t val){
     motion_sensor_off_timer = val;
     EEPROM.write(FLOC_EEPARAM_MOTIONSENSOR_DUR, val);
     EEPROM.commit();
   }
-
+  #endif
   void getDefaultConfig(){
     //init with default values
     settings.log_freq = SETTING_DEFAULT_LOGFREQ;
@@ -76,7 +80,9 @@ class EepromConfigClass {
       if (settings.log_freq < SETTING_DEFAULT_LOGFREQ){
         settings.log_freq = SETTING_DEFAULT_LOGFREQ;
       }
+      #ifdef HAS_MOTION_SENSOR
       motion_sensor_off_timer = EEPROM.read(FLOC_EEPARAM_MOTIONSENSOR_DUR);
+      #endif
       return true;
     }else{
       getDefaultConfig();

@@ -559,7 +559,7 @@ void WiFiManager::handleWifiSave() {
   _ssid = server->arg("s").c_str();
   _pass = server->arg("p").c_str();
   _mqtt_server = server->arg("m").c_str();
-  
+
   //parameters
   for (int i = 0; i < _paramsCount; i++) {
     if (_params[i] == NULL) {
@@ -669,8 +669,6 @@ void WiFiManager::handleReset() {
   ESP.reset();
   delay(2000);
 }
-
-
 
 //removed as mentioned here https://github.com/tzapu/WiFiManager/issues/114
 /*void WiFiManager::handle204() {

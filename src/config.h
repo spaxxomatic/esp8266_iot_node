@@ -3,14 +3,15 @@
 #define SONOFF_BOARD 1
 #define NODEMCU_BOARD 2
 
+
 //#define BOARDTYPE SONOFF_BOARD
 #define BOARDTYPE NODEMCU_BOARD
 
 //is a motion sensor conencted?
-#define HAS_MOTION_SENSOR
+//#define HAS_MOTION_SENSOR
 
 //is there a button conencted? (mutually exclusive with HAS_MOTION_SENSOR)
-//#define HAS_BUTTON
+#define HAS_BUTTON
 
 #if BOARDTYPE == SONOFF
 #ifdef HAS_BUTTON
@@ -30,7 +31,7 @@
   #endif
 //#define HAS_BUTTON
   #ifdef HAS_BUTTON
-  #define BUTTON_PIN SONOFF_PIN_5
+  #define BUTTON_PIN 0
   #endif
 #endif
 

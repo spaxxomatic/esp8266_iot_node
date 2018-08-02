@@ -14,6 +14,9 @@
 #include "DHT.h"
 #endif
 
+#include <Ticker.h>
+Ticker blinker;
+
 #ifdef HAS_DHT_SENSOR
 #define DHTTYPE DHT11
 #define DHTPIN 13 //GPIO13
@@ -33,13 +36,11 @@ void timerCallback(void *pArg) {
 }
 
 void user_init(void) {
-
 } // End of user_init
 
 
 WiFiClient net;
 
-//IPAddress mqtt_server(192, 168, 1, 11);
 IPAddress mqttServerIp;
 AsyncMqttClient mqttClient;
 
@@ -74,11 +75,28 @@ void saveConfigParams() {
     };
 }
 
+unsigned int count = 0;
+void flip() {
+  int state = digitalRead(LED_BUILTIN);  // get the current state of GPIO1 pin
+  digitalWrite(LED_BUILTIN, !state);     // set pin to the opposite state
+
+  ++count;
+  // when the counter reaches a certain value, start blinking like crazy
+  if (count == 20) {
+    blinker.attach(0.1, flip);
+  }
+  // when the counter reaches yet another value, stop blinking
+  else if (count == 120) {
+    blinker.detach();
+  }
+}
+
 void enterWifiManager(){
   #ifdef DEBUG_ON
     wifiManager.setDebugOutput(true);
   #endif
-  wifiManager.setTimeout(1200); //wait max 10 min in config mode
+  wifiManager.setConfigPortalTimeout(600); //wait max 10 min in config mode
+  wifiManager.setConnectTimeout(60); //wait max 1 min for wlan connect
   wifiManager.setSaveConfigCallback(*saveConfigParams);
   if (!wifiManager.startConfigPortal("ESP_WAITING_CONFIG", "pass")) {
     Serial.println("Failed to connect and hit timeout");
@@ -98,9 +116,13 @@ char sensor_topic[32];
 //mqtt_subscribed_topics_t mqtt_subscribed_topics;
 void setup(void) {
   Serial.begin(115200);
-  Serial.setTimeout(2000);
+  Serial.setTimeout(1000);
   Serial.println();
   Serial.println("Boot...");
+
+  // flip the pin every 0.3s
+  blinker.attach(0.3, flip);
+
   byte mac[6];
   WiFi.macAddress(mac);
   sprintf(str_mac,"%02x%02x%02x%02x%02x%02x",mac[0],mac[1],mac[2], mac[3], mac[4], mac[5]  );
@@ -271,7 +293,7 @@ void loop(void) {
   #else
    sprintf(tempPayloadBuffer,jsonFormatBattOnly, dtostrf(batt_voltage, 6, 2, bvbuff));
    if (mqttClient.publish(tempTopicBuffer, 1, false, tempPayloadBuffer) == 0){
-     SERIAL_DEBUGC("\n MQTT err send") ;
+     SERIAL_DEBUGC("\n MQTT err send.") ;
    };
   #endif
   //mqtt.publish("unconfigured/batt", dtostrf(batt_voltage, 1, 2, tempBuffer), true);
@@ -296,6 +318,11 @@ void loop(void) {
 void response_loop(unsigned int with_wait){
   static bool bBlink = false;
   static uint pwmval = 1;
+  if (!mqttClient.connected()){
+      SERIAL_DEBUG("MQTT reconnect.. ") ;
+      delay(1000);
+      mqttClient.connect();
+  }
   handle_serial_cmd();
   //inputs handling
   if (tickOccured){
@@ -318,7 +345,6 @@ void response_loop(unsigned int with_wait){
        //only the first press after a depress shall trigger a state change
        EepromConfig.settings.actor_state = !EepromConfig.settings.actor_state ;
        f_handleActorEvent = true;
-       pwmval = 1024;
      }
     #endif
     #ifdef HAS_MOTION_SENSOR
@@ -347,13 +373,14 @@ void response_loop(unsigned int with_wait){
                f_handleActorEvent = true;
             }
             cnt_motion_sensor_countdown = (1000/OS_MAIN_TIMER_MS)*EepromConfig.motion_sensor_off_timer;
+
       }
     #endif
   }
   pwmval+=pwmdir;
   analogWrite(LED_BUILTIN, pwmval);
-  if (pwmval >=1020) pwmdir = -10;
-  if (pwmval <= 10) pwmdir = 10;
+  if (pwmval >=1000) pwmdir = -20;
+  if (pwmval <= 20) pwmdir = 20;
   if (bBlink) {
     bBlink = false;
     //digitalWrite(SONOFF_LED, EepromConfig.settings.actor_state);
@@ -363,13 +390,14 @@ void response_loop(unsigned int with_wait){
   if (with_wait>0){
     delay(with_wait);
   }
-  //delete config, if it needs to be deleted
+  //we just received a config message, delete it from the broker
   if (f_deleteRemoteConfig){
     mqttClient.publish(config_topic, 1, false);
     f_deleteRemoteConfig = false;
   }
 
   if (f_handleActorEvent){
+    pwmval = 1024; //
     digitalWrite(ACTOR_PIN, EepromConfig.settings.actor_state );
     //digitalWrite(SONOFF_LED, !EepromConfig.settings.actor_state );
     snprintf(tempTopicBuffer, sizeof(tempTopicBuffer), "%s/state", actor_topic);
@@ -383,11 +411,16 @@ void response_loop(unsigned int with_wait){
   }
 }
 
-bool msg_received = false;
+
 void handleConfigMsg(char* payload, unsigned int length){
     StaticJsonBuffer<200> jsonBuffer;
+    
     SERIAL_DEBUG("handleConfigMsg");
     SERIAL_DEBUG(payload);
+    if (length <= 1) {
+      SERIAL_DEBUG(" ! No payload");
+      return ;
+    }
     if (length >= sizeof(jsonBuffer)){
       return ;
     }
@@ -400,8 +433,8 @@ void handleConfigMsg(char* payload, unsigned int length){
         int deepsleep = root["deepsleep"];
         if (deepsleep > 0){
             EepromConfig.store_deepsleep(deepsleep);
-          }else{
-            SERIAL_DEBUG ("No deepsleep value");
+            SERIAL_DEBUGC ("Deepsleep value set to ");
+            SERIAL_DEBUG (deepsleep);
         }
         const char*  location = root["location"];
         //root.prettyPrintTo(Serial);
@@ -466,7 +499,6 @@ void onMqttMessage(char* topic, char* payload, AsyncMqttClientMessageProperties 
       handleActorMsg(payload, len);
     }
   }
-  msg_received=true;
 }
 
 
@@ -487,20 +519,20 @@ void onMqttConnect(bool sessionPresent) {
 }
 
 void onMqttDisconnect(AsyncMqttClientDisconnectReason reason) {
-  Serial.println("** Lost broker conn");
+  Serial.print("** Lost broker conn: ");
   Serial.println((int) reason);
-  Serial.println("Reconnecting to MQTT...");
+  SERIAL_DEBUG("Reconnecting to MQTT...");
   mqttClient.connect();
 }
 
 void onMqttSubscribe(uint16_t packetId, uint8_t qos) {
-  Serial.println("** Sub ACK");
+  SERIAL_DEBUG("** Sub ACK");
 }
 
 void onMqttUnsubscribe(uint16_t packetId) {
-  Serial.println("** Unsub ACK");
+  SERIAL_DEBUG("** Unsub ACK");
 }
 
 void onMqttPublish(uint16_t packetId) {
-  Serial.println("** Pub ACK");
+  SERIAL_DEBUG("** Pub ACK");
 }
