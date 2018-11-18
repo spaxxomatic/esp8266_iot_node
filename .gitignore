@@ -3,3 +3,5 @@
 .pioenvs
 .piolibdeps
 .gcc-flags.json
+.vscode/.browse.c_cpp.db*
+.vscode/launch.json

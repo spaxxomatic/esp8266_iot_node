@@ -1,14 +1,32 @@
+// AUTOMATICALLY GENERATED FILE. PLEASE DO NOT MODIFY IT MANUALLY
+
+// PIO Unified Debugger
+//
+// Documentation: https://docs.platformio.org/page/plus/debugging.html
+// Configuration: https://docs.platformio.org/page/projectconf/section_env_debug.html
+
 {
     "version": "0.2.0",
     "configurations": [
         {
-            "type": "gdb",
+            "type": "platformio-debug",
             "request": "launch",
-            "cwd": "${workspaceRoot}",
-            "name": "PlatformIO Debugger",
-            "target": "c:/avr/platformio_projects/mqtt_sensor_actor/.pioenvs/esp8285/firmware.elf",
-            "gdbpath": "C:/Users/luci/.platformio/penv/Scripts/piodebuggdb",
-            "autorun": [ "source .pioinit" ]
+            "name": "PIO Debug",
+            "executable": "c:/avr/platformio_projects/mqtt_sensor_actor/.pioenvs/esp8285/firmware.elf",
+            "toolchainBinDir": "",
+            "preLaunchTask": {
+                "type": "PlatformIO",
+                "task": "Pre-Debug"
+            },
+            "internalConsoleOptions": "openOnSessionStart"
+        },
+        {
+            "type": "platformio-debug",
+            "request": "launch",
+            "name": "PIO Debug (skip Pre-Debug)",
+            "executable": "c:/avr/platformio_projects/mqtt_sensor_actor/.pioenvs/esp8285/firmware.elf",
+            "toolchainBinDir": "",
+            "internalConsoleOptions": "openOnSessionStart"
         }
     ]
 }

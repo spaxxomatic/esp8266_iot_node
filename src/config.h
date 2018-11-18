@@ -3,17 +3,18 @@
 #define SONOFF_BOARD 1
 #define NODEMCU_BOARD 2
 
+#define FW_VERSION "1.1"
 
-//#define BOARDTYPE SONOFF_BOARD
-#define BOARDTYPE NODEMCU_BOARD
+#define BOARDTYPE SONOFF_BOARD
+//#define BOARDTYPE NODEMCU_BOARD
 
 //is a motion sensor conencted?
-//#define HAS_MOTION_SENSOR
+#define HAS_MOTION_SENSOR
 
-//is there a button conencted? (mutually exclusive with HAS_MOTION_SENSOR)
-#define HAS_BUTTON
+//is there a button connected? (mutually exclusive with HAS_MOTION_SENSOR)
+//#define HAS_BUTTON
 
-#if BOARDTYPE == SONOFF
+#if BOARDTYPE == SONOFF_BOARD
 #ifdef HAS_BUTTON
 #ifdef HAS_MOTION_SENSOR
 #error For sonoff board, only one input is available. Do not activate both motion sensor and button !
@@ -23,15 +24,17 @@
 
 
 #if BOARDTYPE == NODEMCU_BOARD
+  #define CAPABILITIES "NODEMCU"
   #define BOARD_CONFIG_OK
   #define ACTOR_PIN 12
   #ifdef HAS_MOTION_SENSOR
     #define MOTION_SENSOR_PIN 14
     #define MOTION_SENSOR_DEFAULT_TIMER 4
+    #define CAPABILITIES CAPABILITIES " MOTION"
   #endif
-//#define HAS_BUTTON
   #ifdef HAS_BUTTON
-  #define BUTTON_PIN 0
+    #define BUTTON_PIN 0
+    #define CAPABILITIES CAPABILITIES " BUTTON"
   #endif
 #endif
 
@@ -40,13 +43,16 @@
   #define ACTOR_PIN 12
   #define LED_BUILTIN 13
   #define SONOFF_PIN_5 14
-
+  #define CAPABILITIES_BRD "SONOFF"
+  #define CAPABILITIES CAPABILITIES_BRD
   #ifdef HAS_BUTTON
     #define BUTTON_PIN SONOFF_PIN_5
+    #define CAPABILITIES CAPABILITIES_BRD " BUTTON"
   #endif
   #ifdef HAS_MOTION_SENSOR
     #define MOTION_SENSOR_PIN SONOFF_PIN_5
     #define MOTION_SENSOR_DEFAULT_TIMER 4
+    #define CAPABILITIES CAPABILITIES_BRD " MOTION"
   #endif
 #endif
 

@@ -30,6 +30,7 @@ extern "C" {
 
 os_timer_t myTimer;
 bool tickOccured;
+bool f_SendConfigReport;
 // start of timerCallback
 void timerCallback(void *pArg) {
       tickOccured = true;
@@ -110,6 +111,7 @@ void enterWifiManager(){
 //typedef struct {
 char actor_topic[32] ;
 char config_topic[32];
+char report_topic[32];
 char sensor_topic[32];
 //} mqtt_subscribed_topics_t;
 
@@ -129,6 +131,7 @@ void setup(void) {
   sprintf(actor_topic, "/actor/%s", str_mac);
   sprintf(config_topic, "/config/%s", str_mac);
   sprintf(sensor_topic, "/sensor/%s", str_mac);
+  sprintf(report_topic, "/report/%s", str_mac);
   Serial.println(str_mac);
   os_timer_setfn(&myTimer, timerCallback, NULL);
   os_timer_arm(&myTimer, OS_MAIN_TIMER_MS, true);
@@ -201,7 +204,7 @@ void setup(void) {
 
 bool f_deleteRemoteConfig=false;
 bool f_handleActorEvent=false;
-char tempPayloadBuffer[128];
+char tempPayloadBuffer[256];
 char tempTopicBuffer[128];
 char jsonMsg[128];
 #ifdef HAS_DHT_SENSOR
@@ -209,6 +212,8 @@ const char jsonFormatDht[] = "{\"temperature\":%s,\"humidity\":%s,\"batt\":%s}";
 #endif
 const char jsonFormatBattOnly[] = "{\"batt\":%s}";
 const char jsonFormatErr[] = "{\"error\":\"%s\"}";
+const char jsonFormatReport[] = "{\"fw\":\"%s\",\"location\":\"%s\",\"cap\":\"%s\"}";
+
 float batt_voltage=0.00f;
 char tbuff[8];
 char hbuff[8];
@@ -395,7 +400,11 @@ void response_loop(unsigned int with_wait){
     mqttClient.publish(config_topic, 1, false);
     f_deleteRemoteConfig = false;
   }
-
+ if (f_SendConfigReport){
+    sprintf(tempPayloadBuffer,jsonFormatReport, FW_VERSION, EepromConfig.settings.location, CAPABILITIES);
+    mqttClient.publish(report_topic, 1, true, tempPayloadBuffer);
+    f_SendConfigReport = false;    
+  }
   if (f_handleActorEvent){
     pwmval = 1024; //
     digitalWrite(ACTOR_PIN, EepromConfig.settings.actor_state );
@@ -453,6 +462,12 @@ void handleConfigMsg(char* payload, unsigned int length){
             SERIAL_DEBUG ("No freq value");
           }
         }
+        int report = root["report"];
+        if (report){
+          SERIAL_DEBUGC ("Config report");
+          f_SendConfigReport = true;
+          return;
+        }        
         #ifdef HAS_MOTION_SENSOR
         int val = root["motion_sensor_timer"];
         if (val){

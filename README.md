@@ -14,8 +14,8 @@ I use this as a replacement for the sonoff default firmware. A lot of work has b
 Sensor (button) state will be published to /sensor/<MAC_ADDRESS>
 
 The SW subscribes to /config/<MAC_ADDRESS> for receiving configuration messages.
-The config must be sent as JSON.
-Configuration options:
+
+The config data is JSON-formatted, as follows:
 {"deepsleep":1} - enables the deep sleep mode of ESP
 {"location":<location_name>} - sets the location info , example {"location":"basement_door"}
 {"log_freq":<int>} - logging
