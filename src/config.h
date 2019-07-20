@@ -3,7 +3,7 @@
 #define SONOFF_BOARD 1
 #define NODEMCU_BOARD 2
 
-#define FW_VERSION "1.1"
+#define FW_VERSION 1244
 
 #define BOARDTYPE SONOFF_BOARD
 //#define BOARDTYPE NODEMCU_BOARD
@@ -11,17 +11,8 @@
 //is a motion sensor conencted?
 #define HAS_MOTION_SENSOR
 
-//is there a button connected? (mutually exclusive with HAS_MOTION_SENSOR)
-//#define HAS_BUTTON
-
-#if BOARDTYPE == SONOFF_BOARD
-#ifdef HAS_BUTTON
-#ifdef HAS_MOTION_SENSOR
-#error For sonoff board, only one input is available. Do not activate both motion sensor and button !
-#endif
-#endif
-#endif
-
+//is there a button connected?
+#define HAS_BUTTON
 
 #if BOARDTYPE == NODEMCU_BOARD
   #define CAPABILITIES "NODEMCU"
@@ -43,17 +34,24 @@
   #define ACTOR_PIN 12
   #define LED_BUILTIN 13
   #define SONOFF_PIN_5 14
-  #define CAPABILITIES_BRD "SONOFF"
-  #define CAPABILITIES CAPABILITIES_BRD
+  #define SONOFF_BUTTON 0
+  #define CAPABILITIES "SONOFF"
   #ifdef HAS_BUTTON
-    #define BUTTON_PIN SONOFF_PIN_5
-    #define CAPABILITIES CAPABILITIES_BRD " BUTTON"
+    #define BUTTON_PIN SONOFF_BUTTON
   #endif
   #ifdef HAS_MOTION_SENSOR
     #define MOTION_SENSOR_PIN SONOFF_PIN_5
     #define MOTION_SENSOR_DEFAULT_TIMER 4
-    #define CAPABILITIES CAPABILITIES_BRD " MOTION"
   #endif
+  
+  #ifdef HAS_BUTTON
+  #ifdef HAS_MOTION_SENSOR
+  #if MOTION_SENSOR_PIN == BUTTON_PIN
+  #error Button and motion sensor use the sane input pin. Check your config
+  #endif
+  #endif
+  #endif
+
 #endif
 
 #ifndef BOARD_CONFIG_OK

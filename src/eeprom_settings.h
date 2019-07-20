@@ -5,7 +5,7 @@
 //#define HAS_SENSOR 0b00000010
 #define MQTTSETTING_HAS_SERVER 0b00000100
 //#define HAS_DHT_SENSOR
-#define OS_MAIN_TIMER_MS 500
+#define OS_MAIN_TIMER_MS 200
 
 #define CONFIG_UNITIALIZED 0x01
 #define CONFIG_SAVED 0xDD
@@ -32,9 +32,9 @@ const char PPARAM_PASSWORD[16] PROGMEM = "11213141";
 #define SETTING_DEFAULT_PASSWORD PPARAM_PASSWORD
 #define SETTING_DEFAULT_MQTT_SERVER "192.168.1.11"
 
-#define FLOC_EEPARAM_SAVED 0x00
-#define FLOC_EEPARAM_MOTIONSENSOR_DUR 0x01
-#define EEPARAM_SETTINGS_START 0x04
+#define FLOC_EEPARAM_SAVED 0x01
+#define FLOC_EEPARAM_MOTIONSENSOR_DUR 0x02
+#define EEPARAM_SETTINGS_START 0x08
 
 class EepromConfigClass {
   public:
@@ -43,7 +43,7 @@ class EepromConfigClass {
   uint8_t motion_sensor_off_timer = MOTION_SENSOR_DEFAULT_TIMER;
   #endif
   void begin(){ //read all params from eeprom
-    EEPROM.begin(1024);
+    EEPROM.begin(512);
     readEepromParams();
   }
 
@@ -75,6 +75,7 @@ class EepromConfigClass {
   }
   boolean readEepromParams(){
     int isValid = EEPROM.read( FLOC_EEPARAM_SAVED );
+    boolean status = false;
     if (isValid == CONFIG_SAVED){
       EEPROM.get(EEPARAM_SETTINGS_START, settings);
       if (settings.log_freq < SETTING_DEFAULT_LOGFREQ){
@@ -83,11 +84,11 @@ class EepromConfigClass {
       #ifdef HAS_MOTION_SENSOR
       motion_sensor_off_timer = EEPROM.read(FLOC_EEPARAM_MOTIONSENSOR_DUR);
       #endif
-      return true;
+      status = true;
     }else{
       getDefaultConfig();
-      return false;
     }
+    return status;
   }
   boolean set_mqtt_server(const char* mqtt_server){
     if (strlen(mqtt_server) > sizeof(settings.mqtt_server)){
@@ -123,7 +124,9 @@ class EepromConfigClass {
     EEPROM.commit();
     return true;
   }
+  
   boolean store_conn_info(const char* new_ssid, const char* new_password, const char* mqtt_server){
+    Serial.println( "store_conn_info");
     if (strlen(new_ssid) > sizeof(settings.ssid)){
       Serial.println( "ssid too long");
       return false;
@@ -138,6 +141,8 @@ class EepromConfigClass {
     EEPROM.put(EEPARAM_SETTINGS_START, settings);
     EEPROM.commit();
     validateSettings();
+    Serial.println( "Eeprom params saved");
+    EEPROM.end();
     return true;
   }
 };

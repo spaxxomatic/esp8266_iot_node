@@ -1,3 +1,4 @@
+const int FW_VERSION = 1244;
 #include "debug.h"
 
 #include <DNSServer.h>
@@ -10,6 +11,8 @@
 #include "eeprom_settings.h"
 #include <AsyncMqttClient.h>
 #include <WiFiManager.h>
+#include<esp8266httpupdate.h>
+//#include <ArduinoOTA.h>
 #ifdef HAS_DHT_SENSOR
 #include "DHT.h"
 #endif
@@ -36,10 +39,6 @@ void timerCallback(void *pArg) {
       tickOccured = true;
 }
 
-void user_init(void) {
-} // End of user_init
-
-
 WiFiClient net;
 
 IPAddress mqttServerIp;
@@ -55,6 +54,9 @@ uint8_t iButtonState = 0;
 uint8_t cnt_motion_sensor_countdown=0xFF;
 #endif
 unsigned int batt;
+#define MODE_SENSOR_DISABLED 'D'
+#define MODE_SENSOR_ENABLED 1
+unsigned int sensorMode = MODE_SENSOR_ENABLED;
 int pwmdir = 0;
 double battV;
 
@@ -92,39 +94,102 @@ void flip() {
   }
 }
 
+volatile boolean bSendHeartbeat = false;
+void timer_heartbeat_handler(){
+  bSendHeartbeat = true;
+}
+
 void enterWifiManager(){
+  //try first default password on the ssid with the best signal
+
   #ifdef DEBUG_ON
     wifiManager.setDebugOutput(true);
   #endif
-  wifiManager.setConfigPortalTimeout(600); //wait max 10 min in config mode
-  wifiManager.setConnectTimeout(60); //wait max 1 min for wlan connect
+  wifiManager.setConfigPortalTimeout(300); //wait 5 min in config mode
+  wifiManager.setConnectTimeout(20); //wait max 20 sec for wlan connect
   wifiManager.setSaveConfigCallback(*saveConfigParams);
   if (!wifiManager.startConfigPortal("ESP_WAITING_CONFIG", "pass")) {
     Serial.println("Failed to connect and hit timeout");
     delay(3000);
-    //reset and try again, or maybe put it to deep sleep
     ESP.reset();
-    delay(100);
+    delay(1000);
   }
 }
 
-//typedef struct {
+void httpUpdate(){
+    /* warning - the update is done after each reboot now */
+  t_httpUpdate_return ret = ESPhttpUpdate.update("http://192.168.1.11/file.bin"); //Location of your binary file
+  //t_httpUpdate_return  ret = ESPhttpUpdate.update("https://server/file.bin");
+  /*upload information only */
+  switch (ret) {
+    case HTTP_UPDATE_FAILED:
+      Serial.printf("HTTP_UPDATE_FAILD Error (%d): %s", ESPhttpUpdate.getLastError(), ESPhttpUpdate.getLastErrorString().c_str());
+      break;
+    case HTTP_UPDATE_NO_UPDATES:
+      Serial.println("HTTP_UPDATE_NO_UPDATES");
+      break;
+    case HTTP_UPDATE_OK:
+      Serial.println("HTTP_UPDATE_OK");
+      break;
+  }
+}
 char actor_topic[32] ;
 char config_topic[32];
 char report_topic[32];
 char sensor_topic[32];
-//} mqtt_subscribed_topics_t;
 
-//mqtt_subscribed_topics_t mqtt_subscribed_topics;
+volatile uint pwmval = 1;
+
+volatile bool sendActorState = false;
+Ticker timer_light_on;
+
+void set_actor(){
+    pwmval = 1024; //
+    digitalWrite(ACTOR_PIN, EepromConfig.settings.actor_state );
+    //digitalWrite(SONOFF_LED, !EepromConfig.settings.actor_state );
+    sendActorState = true;
+}
+void actor_on(bool keep_on){
+    EepromConfig.settings.actor_state = 1;
+    set_actor();
+    if (! keep_on)
+      timer_light_on.once(EepromConfig.motion_sensor_off_timer, actor_off);
+}
+
+void actor_off(){
+    EepromConfig.settings.actor_state = 0;
+    set_actor();
+}
+
+void actor_toggle(){
+    EepromConfig.settings.actor_state = !EepromConfig.settings.actor_state;
+    set_actor();
+}
+
+Ticker timer_heartbeat;
+
+#ifdef HAS_MOTION_SENSOR
+
+void motion_sensor_irq() {
+    if (sensorMode != MODE_SENSOR_DISABLED) {
+          actor_on(false);
+    }
+}
+#endif
+
 void setup(void) {
   Serial.begin(115200);
   Serial.setTimeout(1000);
   Serial.println();
-  Serial.println("Boot...");
-
+  Serial.println("Boot..");
+  pinMode(LED_BUILTIN, OUTPUT);
   // flip the pin every 0.3s
   blinker.attach(0.3, flip);
-
+  httpUpdate();
+  
+  #ifdef HAS_MOTION_SENSOR
+  attachInterrupt(digitalPinToInterrupt(MOTION_SENSOR_PIN), motion_sensor_irq, FALLING);
+  #endif
   byte mac[6];
   WiFi.macAddress(mac);
   sprintf(str_mac,"%02x%02x%02x%02x%02x%02x",mac[0],mac[1],mac[2], mac[3], mac[4], mac[5]  );
@@ -137,6 +202,7 @@ void setup(void) {
   os_timer_arm(&myTimer, OS_MAIN_TIMER_MS, true);
   EepromConfig.begin();
   int i = 0;
+  
   if (EepromConfig.readEepromParams()){ //if we have saved params, try to connect the wlan
     while (WiFi.waitForConnectResult() != WL_CONNECTED) {
       Serial.println("WiFi login:");
@@ -157,16 +223,11 @@ void setup(void) {
     enterWifiManager();
   }
   //if we reached this place, we're connected
-
-
-  //EepromConfig.readEepromParams();
-
-  SERIAL_DEBUGC("Connected. IP address: ");
-  SERIAL_DEBUG(WiFi.localIP());
+  Serial.print("Connected. IP address: ");
+  Serial.println(WiFi.localIP());
   //mqtt config: id/name, placeholder/prompt, default, length
   ESP.wdtEnable(4000);
   pinMode(ACTOR_PIN, OUTPUT);
-  pinMode(LED_BUILTIN, OUTPUT);
   #ifdef HAS_BUTTON
   pinMode(BUTTON_PIN, INPUT_PULLUP);
   #endif
@@ -176,31 +237,26 @@ void setup(void) {
   dht.begin();
   #endif
   mqttClient.onMessage(onMqttMessage);
-  SERIAL_DEBUGC("Connecting to MQTT at ");
-  SERIAL_DEBUG(EepromConfig.settings.mqtt_server);
+  //Serial.print("Connect MQTT srv ");
+  //Serial.println(EepromConfig.settings.mqtt_server);
   WiFi.hostByName(EepromConfig.settings.mqtt_server, mqttServerIp) ;
   if (mqttServerIp == IPAddress(0,0,0,0)){ //host name or ip adress is wrong, enter config
-    SERIAL_DEBUG("Mqtt server config error, enter config");
+    Serial.println("Mqtt server config error, enter config");
     enterWifiManager();
   }
-  SERIAL_DEBUG(mqttServerIp);
+  Serial.println(mqttServerIp);
   mqttClient.setServer(mqttServerIp, 1883);
   mqttClient.onConnect(onMqttConnect);
   mqttClient.onDisconnect(onMqttDisconnect);
   mqttClient.onSubscribe(onMqttSubscribe);
-  //mqttClient.onUnsubscribe(onMqttUnsubscribe);
   mqttClient.onMessage(onMqttMessage);
-  //mqttClient.onPublish(onMqttPublish);
-  //mqttClient.setServer(IPAddress(192, 168, 1, 11), 1883);
-
-  //mqttClient.setKeepAlive(5).setCleanSession(false).setWill("/sensor/error", 2, true, "no").setClientId(str_mac);
   mqttClient.setKeepAlive(5).setCleanSession(false).setClientId(str_mac);
   mqttClient.connect();
-
   //enable PWM on led pin
+  blinker.detach();
   analogWriteFreq(100); // Hz freq
+  timer_heartbeat.attach(EepromConfig.settings.log_freq, timer_heartbeat_handler);
 }
-
 
 bool f_deleteRemoteConfig=false;
 bool f_handleActorEvent=false;
@@ -233,8 +289,7 @@ void go_deepsleep(unsigned int seconds){
 #endif
 }
 #endif
-#define QOS_1 1
-
+/*
 void handle_serial_cmd(){
   if (Serial.available() > 0) {
    String serial_rcv = Serial.readStringUntil('\r');
@@ -261,137 +316,66 @@ void handle_serial_cmd(){
       Serial.println(EepromConfig.settings.actor_state);
       Serial.print("Log freq");
       Serial.println(EepromConfig.settings.log_freq);
-
      }
   }
 }
+*/
 
-
+void sendHeartbeat(){
+  batt_voltage = ESP.getVcc()/(float)1000;
+  snprintf(tempTopicBuffer, sizeof(tempTopicBuffer), "%s/data", sensor_topic);
+  sprintf(tempPayloadBuffer,jsonFormatBattOnly, dtostrf(batt_voltage, 6, 2, bvbuff));
+  if (mqttClient.publish(tempTopicBuffer, 1, false, tempPayloadBuffer) == 0){
+     SERIAL_DEBUGC("\n MQTT err send.") ;
+  };  
+  SERIAL_DEBUG("Sent HB") ;  
+}
 
 void loop(void) {
-  response_loop(20);
-  // read sensors
-  batt_voltage = ESP.getVcc()/(float)1000;
-
-  #ifdef HAS_DHT_SENSOR
-    float h = dht.readHumidity()+0.1;
-    delay(100);
-    float t = dht.readTemperature();
-    delay(100);
-  #endif
-  // Check if any reads failed and exit early (to try again).
-  snprintf(tempTopicBuffer, sizeof(tempTopicBuffer), "%s/data", sensor_topic);
-  #ifdef HAS_DHT_SENSOR
-  if (!isnan(h) || !isnan(t)) {
-    //snprintf(tempTopicBuffer, sizeof(tempTopicBuffer), "%s%s", EepromConfig.settings.mqtt_topic, "/temp");
-    //mqtt.publish(tempTopicBuffer, dtostrf(t, 1, 1, tempBuffer), true);
-    sprintf(tempPayloadBuffer,jsonFormatDht, dtostrf(t, 5, 1, tbuff), dtostrf(h, 5, 1, hbuff), dtostrf(batt_voltage, 6, 1, bvbuff));
-    mqttClient.publish(tempTopicBuffer, 1, false, tempPayloadBuffer);
-  }else{
-    sprintf(tempPayloadBuffer,jsonFormatBattOnly, dtostrf(batt_voltage, 6, 2, bvbuff));
-    mqttClient.publish(tempTopicBuffer, 1, false, tempPayloadBuffer);
-    //send sensor error notification
-    sprintf(tempPayloadBuffer,jsonFormatErr,"Sensor error");
-    snprintf(tempTopicBuffer, sizeof(tempTopicBuffer), "%s/error", sensor_topic);
-    mqttClient.publish(tempTopicBuffer, 0, false, tempPayloadBuffer);
-  }
-  #else
-   sprintf(tempPayloadBuffer,jsonFormatBattOnly, dtostrf(batt_voltage, 6, 2, bvbuff));
-   if (mqttClient.publish(tempTopicBuffer, 1, false, tempPayloadBuffer) == 0){
-     SERIAL_DEBUGC("\n MQTT err send.") ;
-   };
-  #endif
-  //mqtt.publish("unconfigured/batt", dtostrf(batt_voltage, 1, 2, tempBuffer), true);
-  //mqtt.publish("unconfigured/battRaw", itoa(batt, tempBuffer, 10), true);
-  SERIAL_DEBUGC("\nMQTT sent to ") ;
-  SERIAL_DEBUGC( tempTopicBuffer);
-  SERIAL_DEBUGC( ":");
-  SERIAL_DEBUG( tempPayloadBuffer) ;
-  //mqtt.publish("unconfigured/resetReason", ESP.getResetReason());
-  if (EepromConfig.settings.deepsleep > 0){
-    //TODO: let ESP go to deep sleep
-  }
-
-  response_loop(100);
-  for(int i = 0; i < EepromConfig.settings.log_freq; i++){
-    for (int j= 0; j < 20; j++){
-      response_loop(50);
-    }
-  }
+  yield();
+  response_loop(50);
 }
 
 void response_loop(unsigned int with_wait){
-  static bool bBlink = false;
-  static uint pwmval = 1;
   if (!mqttClient.connected()){
       SERIAL_DEBUG("MQTT reconnect.. ") ;
       delay(1000);
       mqttClient.connect();
   }
-  handle_serial_cmd();
+  if (sendActorState){
+    sendActorState = false;
+    snprintf(tempTopicBuffer, sizeof(tempTopicBuffer), "%s/state", actor_topic);
+    itoa(EepromConfig.settings.actor_state,tempPayloadBuffer,10);
+    if (mqttClient.publish(tempTopicBuffer, 1, true, tempPayloadBuffer) == 0){
+      SERIAL_DEBUG("MQTT pub failed") ;
+    };  
+  }  
+  if (bSendHeartbeat){
+    bSendHeartbeat = false;
+    sendHeartbeat();
+  }
+  //handle_serial_cmd();
   //inputs handling
   if (tickOccured){
     tickOccured = false;
-    bBlink = true;
     //we read the button state only once every tick, (debouncing)
     #ifdef HAS_BUTTON
-    #ifdef HAS_MOTION_SENSOR
-    #error Motion sensor and button cannot be active simultaneouly, check your config
-    #endif
     uint8_t val = digitalRead(BUTTON_PIN);  // read input value
-     if (val == HIGH) {         // check if the input is HIGH (button released)
+     if (val == HIGH) {  //check if the input is HIGH (button released)
        iButtonState = 0;
      } else {
-       iButtonState += 1;
-       //now the action on button press
+       iButtonState += 1; //increment, but only the value 1 will trigger an action
      }
-     //if (bButtonState == 1 && bPrevButtonState != bButtonState  ){
      if (iButtonState == 1){
        //only the first press after a depress shall trigger a state change
-       EepromConfig.settings.actor_state = !EepromConfig.settings.actor_state ;
-       f_handleActorEvent = true;
+       actor_toggle();
      }
-    #endif
-    #ifdef HAS_MOTION_SENSOR
-    #ifdef HAS_BUTTON
-    #error Motion sensor and button cannot be active simultaneouly, check your config
-    #endif
-      uint8_t val = digitalRead(MOTION_SENSOR_PIN);  // read input value
-      //SERIAL_DEBUG(cnt_motion_sensor_countdown);
-      if (val == LOW) {         // No motion
-           if (cnt_motion_sensor_countdown != 0xFF){
-             //we need this check so that the events are generated only once per trigger
-             //when the counter reaches 0, no further events shall be generated
-             if (cnt_motion_sensor_countdown > 0) cnt_motion_sensor_countdown -= 1;
-             else {
-               //the cnt_motion_sensor_timer == 0 is used as action marker.
-               //We set the value to 0xFF afterwards so that no further events are raised
-               EepromConfig.settings.actor_state = 0;
-               cnt_motion_sensor_countdown = 0xFF;
-               f_handleActorEvent = true;
-             }
-           }
-      } else {
-            if (EepromConfig.settings.actor_state == 0) {
-             //if not already active
-               EepromConfig.settings.actor_state = 1;
-               f_handleActorEvent = true;
-            }
-            cnt_motion_sensor_countdown = (1000/OS_MAIN_TIMER_MS)*EepromConfig.motion_sensor_off_timer;
-
-      }
     #endif
   }
   pwmval+=pwmdir;
   analogWrite(LED_BUILTIN, pwmval);
   if (pwmval >=1000) pwmdir = -20;
   if (pwmval <= 20) pwmdir = 20;
-  if (bBlink) {
-    bBlink = false;
-    //digitalWrite(SONOFF_LED, EepromConfig.settings.actor_state);
-    //delay(5);
-    //digitalWrite(SONOFF_LED, !EepromConfig.settings.actor_state);
-  }
   if (with_wait>0){
     delay(with_wait);
   }
@@ -404,19 +388,6 @@ void response_loop(unsigned int with_wait){
     sprintf(tempPayloadBuffer,jsonFormatReport, FW_VERSION, EepromConfig.settings.location, CAPABILITIES);
     mqttClient.publish(report_topic, 1, true, tempPayloadBuffer);
     f_SendConfigReport = false;    
-  }
-  if (f_handleActorEvent){
-    pwmval = 1024; //
-    digitalWrite(ACTOR_PIN, EepromConfig.settings.actor_state );
-    //digitalWrite(SONOFF_LED, !EepromConfig.settings.actor_state );
-    snprintf(tempTopicBuffer, sizeof(tempTopicBuffer), "%s/state", actor_topic);
-    itoa(EepromConfig.settings.actor_state,tempPayloadBuffer,10);
-    mqttClient.publish(tempTopicBuffer, 1, true, tempPayloadBuffer);
-    f_handleActorEvent = false;
-    SERIAL_DEBUGC("\nMQTT sent to ") ;
-    SERIAL_DEBUGC( tempTopicBuffer);
-    SERIAL_DEBUGC( ":");
-    SERIAL_DEBUG( tempPayloadBuffer) ;
   }
 }
 
@@ -432,6 +403,9 @@ void handleConfigMsg(char* payload, unsigned int length){
     }
     if (length >= sizeof(jsonBuffer)){
       return ;
+    }
+    if (strcmp(payload,"RBT")){
+      ESP.restart();
     }
     JsonObject& root = jsonBuffer.parseObject(payload);
     // Test if parsing succeeds.
@@ -489,25 +463,30 @@ void handleActorMsg(char* payload, int length){
   SERIAL_DEBUG ("handleActorMsg");
   SERIAL_DEBUG ((char *) payload);
   if (length > 0){
-    f_handleActorEvent = true;
     if (payload[0] == '0'){
-      EepromConfig.settings.actor_state = 0;
+      actor_off();
+      sensorMode = MODE_SENSOR_ENABLED;
     }else{
-      EepromConfig.settings.actor_state = 1;
+      if (payload[0] == MODE_SENSOR_DISABLED) { //this is a special value for "permanent on"
+        sensorMode = MODE_SENSOR_DISABLED;
+        SERIAL_DEBUG ("sensor dis");
+        actor_on(true);
+      }else{
+        SERIAL_DEBUG ("sensor en");
+        sensorMode = MODE_SENSOR_ENABLED;
+        actor_on(false);
+      }
     }
-    //snprintf(tempTopicBuffer, sizeof(tempTopicBuffer), "%s/state", actor_topic);
-    //mqttClient.publish(tempTopicBuffer, 1, true, payload);
   }
 
 }
 
 void onMqttMessage(char* topic, char* payload, AsyncMqttClientMessageProperties properties, size_t len, size_t index, size_t total) {
-  SERIAL_DEBUGC("** Pub rcv:");
+  SERIAL_DEBUGC("*RX pub");
   SERIAL_DEBUG(topic);
   SERIAL_DEBUG(len);
   //payload[len] = '\0';
   if (len>0){
-    //SERIAL_DEBUG("%.*s", 4, buff + 10));
     if (strcmp(topic, config_topic) == 0){
       handleConfigMsg(payload, len);
     }else if (strcmp(topic, actor_topic) == 0){
@@ -518,36 +497,27 @@ void onMqttMessage(char* topic, char* payload, AsyncMqttClientMessageProperties 
 
 
 void onMqttConnect(bool sessionPresent) {
-  SERIAL_DEBUG("** onMqttConnect:");
+  SERIAL_DEBUG("MqttConnect");
   SERIAL_DEBUG(sessionPresent );
-  //SERIAL_DEBUG("Session ");
-  //SERIAL_DEBUG(sessionPresent);
-  //mqttClient.subscribe(config_topic, 2);
-  //SERIAL_DEBUG("Subscribing to ");
-  //SERIAL_DEBUG(actorr_topic);
   mqttClient.subscribe(actor_topic, 2);
-  //SERIAL_DEBUG(config_topic);
   mqttClient.subscribe(config_topic, 2);
-
-  //Serial.print("Subscribing at QoS 2, packetId: ");
-  //Serial.println(packetIdSub);
 }
 
 void onMqttDisconnect(AsyncMqttClientDisconnectReason reason) {
-  Serial.print("** Lost broker conn: ");
+  Serial.print("Lost broker conn");
   Serial.println((int) reason);
   SERIAL_DEBUG("Reconnecting to MQTT...");
   mqttClient.connect();
 }
 
 void onMqttSubscribe(uint16_t packetId, uint8_t qos) {
-  SERIAL_DEBUG("** Sub ACK");
+  SERIAL_DEBUG("Sub ACK");
 }
 
 void onMqttUnsubscribe(uint16_t packetId) {
-  SERIAL_DEBUG("** Unsub ACK");
+  SERIAL_DEBUG("Unsub ACK");
 }
 
 void onMqttPublish(uint16_t packetId) {
-  SERIAL_DEBUG("** Pub ACK");
+  SERIAL_DEBUG("Pub ACK");
 }

@@ -6,14 +6,20 @@ I use this as a replacement for the sonoff default firmware. A lot of work has b
 * Nicely handles lost Wlan connections by trying to reconnect a couple of times and then rebooting in AP mode and presenting a configuration GUI
 * Detects MQTT server disconnects and tries to reconnect
 
-* In motion detection mode, the "ON" time is configurable via the MQTT topic
+* In motion detection mode, the "ON" time is configurable via MQTT (see config section below)
 * Mode indication via the on-board LED - in normal mode, LED dim-blinks each 4 seconds
 
 
 ### MQTT topics
 Sensor (button) state will be published to /sensor/<MAC_ADDRESS>
 
-The SW subscribes to /config/<MAC_ADDRESS> for receiving configuration messages.
+MQTT subscribtions:
+ * /actor/<MAC_ADDRESS> for setting the actor state (in case of sonoff module, the actor is the on-board relay)
+ When the motion sensor is activated, the relais can be switched on by publishing on the /actor/ topic. When motion is detected, the countdown is triggered and the relais is switched off after the <motion_sensor_timer> seconds. 
+ For a permanent switch on (means, subsequently ignoring the motion sensor events), the value 255 must be published on the /actor topic. 
+ The output will be switched on upon receival of another value <> 255 on the /actor topic.
+ 
+ * /config/<MAC_ADDRESS> for receiving configuration messages.
 
 The config data is JSON-formatted, as follows:
 {"deepsleep":1} - enables the deep sleep mode of ESP
@@ -21,9 +27,6 @@ The config data is JSON-formatted, as follows:
 {"log_freq":<int>} - logging
 Configuration is stored in the EEPROM.
 {"motion_sensor_timer":<int>} - if a motion sensor is configured, the off-time of the sensor (seconds) can be configured via this parameter
-
-and to /actor/<MAC_ADDRESS> for reading the actor state (in case of sonoff module, the actor is the on-board relay)
-
 
 ### Future improvements (Todo's)
 * Static TCP/IP adress configurable via MQTT - would allow faster reboots

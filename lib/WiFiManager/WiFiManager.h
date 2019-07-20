@@ -124,7 +124,7 @@ class WiFiManager
     void          setRemoveDuplicateAPs(boolean removeDuplicates);
     const char*         getValidSsid(void){return _ssid.c_str();};
     const char*         getValidPwd(void){return _pass.c_str();};
-const char*         getMqttAddress(void){return _mqtt_server.c_str();};
+    const char*         getMqttAddress(void){return _mqtt_server.c_str();};
   private:
     std::unique_ptr<DNSServer>        dnsServer;
     std::unique_ptr<ESP8266WebServer> server;
