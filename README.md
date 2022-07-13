@@ -35,3 +35,11 @@ Configuration is stored in the EEPROM.
 NodeMCU schematic https://github.com/nodemcu/nodemcu-devkit-v1.0/blob/master/NODEMCU_DEVKIT_V1.0.PDF
 
 Sonoff schematic https://www.itead.cc/wiki/File:Sonoff-Schematic.pdf
+
+### Programming notes:
+* When flashing, set the SPI mode of your board. Some SONOFF modules are delivered with QIO, some with DOUT flash chips. Set the right value in the platform.ini or flashing will fail. 
+
+* Some cheap China USB-to-Serial modules (CH340) are causing random problems when flashing. Use FT232 USB-Serial converters to avoid headaches.
+
+* Manual programming:
+python esptool.py --port=COMx write_flash 0x0 firmware.bin --flash_mode qio

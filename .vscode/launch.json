@@ -1,5 +1,5 @@
 // AUTOMATICALLY GENERATED FILE. PLEASE DO NOT MODIFY IT MANUALLY
-
+//
 // PIO Unified Debugger
 //
 // Documentation: https://docs.platformio.org/page/plus/debugging.html
@@ -13,20 +13,32 @@
             "request": "launch",
             "name": "PIO Debug",
             "executable": "c:/avr/platformio_projects/mqtt_sensor_actor/.pio/build/esp8285/firmware.elf",
+            "projectEnvName": "esp8285",
             "toolchainBinDir": "",
+            "internalConsoleOptions": "openOnSessionStart",
             "preLaunchTask": {
                 "type": "PlatformIO",
                 "task": "Pre-Debug"
-            },
-            "internalConsoleOptions": "openOnSessionStart"
+            }
         },
         {
             "type": "platformio-debug",
             "request": "launch",
             "name": "PIO Debug (skip Pre-Debug)",
             "executable": "c:/avr/platformio_projects/mqtt_sensor_actor/.pio/build/esp8285/firmware.elf",
+            "projectEnvName": "esp8285",
             "toolchainBinDir": "",
             "internalConsoleOptions": "openOnSessionStart"
+        },
+        {
+            "type": "platformio-debug",
+            "request": "launch",
+            "name": "PIO Debug (without uploading)",
+            "executable": "c:/avr/platformio_projects/mqtt_sensor_actor/.pio/build/esp8285/firmware.elf",
+            "projectEnvName": "esp8285",
+            "toolchainBinDir": "",
+            "internalConsoleOptions": "openOnSessionStart",
+            "loadMode": "manual"
         }
     ]
 }

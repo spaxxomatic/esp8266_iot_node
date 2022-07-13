@@ -115,7 +115,7 @@ void enterConfig(){
  WiFi.mode(WIFI_STA);
   wifiMulti.addAP("asus", "11213141");
   wifiMulti.addAP("fasole", "11213141");
-  wifiMulti.addAP("ssid_from_AP_3", "your_password_for_AP_3");
+  //wifiMulti.addAP("ssid_from_AP_3", "your_password_for_AP_3");
 
   #ifdef DEBUG_ON
     wifiManager.setDebugOutput(true);
@@ -177,11 +177,14 @@ void set_actor(){
     //digitalWrite(SONOFF_LED, !EepromConfig.settings.actor_state );
     sendActorState = true;
 }
+
 void actor_on(bool keep_on){
     EepromConfig.settings.actor_state = 1;
     set_actor();
+    #ifdef HAS_MOTION_SENSOR
     if (! keep_on)
       timer_light_on.once(EepromConfig.motion_sensor_off_timer, actor_off);
+    #endif
 }
 
 void actor_off(){

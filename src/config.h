@@ -8,7 +8,7 @@
 #define BOARDTYPE SONOFF_BOARD
 //#define BOARDTYPE NODEMCU_BOARD
 
-//is a motion sensor conencted?
+//is a motion sensor connected?
 #define HAS_MOTION_SENSOR
 
 //is there a button connected?
