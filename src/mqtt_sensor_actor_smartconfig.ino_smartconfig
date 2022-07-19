@@ -112,10 +112,8 @@ void timer_heartbeat_handler(){
 void enterConfig(){
   blinker.attach(0.3, flip);
   //try first default password on the ssid with the best signal
- WiFi.mode(WIFI_STA);
-  wifiMulti.addAP("asus", "11213141");
-  wifiMulti.addAP("fasole", "11213141");
-  //wifiMulti.addAP("ssid_from_AP_3", "your_password_for_AP_3");
+ WiFi.mode(WIFI_STA);  
+  wifiMulti.addAP("fasole", "11213141");  
 
   #ifdef DEBUG_ON
     wifiManager.setDebugOutput(true);
@@ -126,6 +124,7 @@ void enterConfig(){
     Serial.println(WiFi.localIP());
   }else{ //enter smart config
     delay(100);
+    Serial.println("Enter smartconfig:");
     WiFi.beginSmartConfig();
 
     while (WiFi.status() != WL_CONNECTED) {
@@ -270,7 +269,6 @@ void setup(void) {
   #ifdef HAS_DHT_SENSOR
   dht.begin();
   #endif
-  mqttClient.onMessage(onMqttMessage);
   //Serial.print("Connect MQTT srv ");
   //Serial.println(EepromConfig.settings.mqtt_server);
   WiFi.hostByName(EepromConfig.settings.mqtt_server, mqttServerIp) ;

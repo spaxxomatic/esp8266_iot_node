@@ -152,8 +152,10 @@ void set_actor(){
 void actor_on(bool keep_on){
     EepromConfig.settings.actor_state = 1;
     set_actor();
+    #ifdef HAS_MOTION_SENSOR
     if (! keep_on)
       timer_light_on.once(EepromConfig.motion_sensor_off_timer, actor_off);
+    #endif  
 }
 
 void actor_off(){
@@ -235,8 +237,7 @@ void setup(void) {
   //pinMode(SONOFF_LED, INPUT_PULLUP);
   #ifdef HAS_DHT_SENSOR
   dht.begin();
-  #endif
-  mqttClient.onMessage(onMqttMessage);
+  #endif  
   //Serial.print("Connect MQTT srv ");
   //Serial.println(EepromConfig.settings.mqtt_server);
   WiFi.hostByName(EepromConfig.settings.mqtt_server, mqttServerIp) ;
@@ -391,11 +392,19 @@ void response_loop(unsigned int with_wait){
   }
 }
 
+bool bProcessingConfig = false; //global flag for avoiding reentrant calls
+
+void handleConfigMsgSynced(char* payload, unsigned int length){
+    bProcessingConfig = true;
+    handleConfigMsg(payload, length);
+    bProcessingConfig = false;
+}
 
 void handleConfigMsg(char* payload, unsigned int length){
+
     StaticJsonBuffer<200> jsonBuffer;
     
-    SERIAL_DEBUG("handleConfigMsg");
+    SERIAL_DEBUG("HCM");
     SERIAL_DEBUG(payload);
     if (length <= 1) {
       SERIAL_DEBUG(" ! No payload");
@@ -410,8 +419,7 @@ void handleConfigMsg(char* payload, unsigned int length){
     JsonObject& root = jsonBuffer.parseObject(payload);
     // Test if parsing succeeds.
     if (!root.success()) {
-        SERIAL_DEBUG("Payload parse fail");
-      //return;
+        SERIAL_DEBUG("Payload parse fail");      
     }else{
         int deepsleep = root["deepsleep"];
         if (deepsleep > 0){
@@ -454,7 +462,7 @@ void handleConfigMsg(char* payload, unsigned int length){
           }
         }
         #endif
-      f_deleteRemoteConfig = true;
+        f_deleteRemoteConfig = true;
     }
 
 }
@@ -485,10 +493,10 @@ void onMqttMessage(char* topic, char* payload, AsyncMqttClientMessageProperties 
   SERIAL_DEBUGC("*RX pub");
   SERIAL_DEBUG(topic);
   SERIAL_DEBUG(len);
-  //payload[len] = '\0';
+  
   if (len>0){
     if (strcmp(topic, config_topic) == 0){
-      handleConfigMsg(payload, len);
+      handleConfigMsgSynced(payload, len);
     }else if (strcmp(topic, actor_topic) == 0){
       handleActorMsg(payload, len);
     }

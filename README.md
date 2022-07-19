@@ -43,3 +43,7 @@ Sonoff schematic https://www.itead.cc/wiki/File:Sonoff-Schematic.pdf
 
 * Manual programming:
 python esptool.py --port=COMx write_flash 0x0 firmware.bin --flash_mode qio
+
+### Uploading a specific env
+
+pio run -t upload -e sonoff_switchonly

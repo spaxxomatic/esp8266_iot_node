@@ -9,10 +9,11 @@
 //#define BOARDTYPE NODEMCU_BOARD
 
 //is a motion sensor connected?
-#define HAS_MOTION_SENSOR
+//#define HAS_MOTION_SENSOR
 
 //is there a button connected?
-#define HAS_BUTTON
+//#define HAS_BUTTON
+
 
 #if BOARDTYPE == NODEMCU_BOARD
   #define CAPABILITIES "NODEMCU"
