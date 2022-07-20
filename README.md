@@ -25,8 +25,11 @@ The config data is JSON-formatted, as follows:
 {"deepsleep":1} - enables the deep sleep mode of ESP
 {"location":<location_name>} - sets the location info , example {"location":"basement_door"}
 {"log_freq":<int>} - logging
-Configuration is stored in the EEPROM.
 {"motion_sensor_timer":<int>} - if a motion sensor is configured, the off-time of the sensor (seconds) can be configured via this parameter
+Configuration is stored in the EEPROM.
+
+Rreport request:
+By sending a message like {"report":1} on the config topic, the device will answer with a MQTT message on the topic /report/<MAC>, reporting the firmware version, the location and the capabilities
 
 ### Future improvements (Todo's)
 * Static TCP/IP adress configurable via MQTT - would allow faster reboots
