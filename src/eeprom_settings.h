@@ -20,6 +20,7 @@ typedef struct {
   int log_freq;
   int deepsleep;
   int actor_state;
+  uint16_t update_fw_ver;
 } settings_t ;
 
 #define SSID_AUTOCONFIG "**AUTO+**"
@@ -34,7 +35,17 @@ const char PPARAM_PASSWORD[16] PROGMEM = "11213141";
 
 #define FLOC_EEPARAM_SAVED 0x01
 #define FLOC_EEPARAM_MOTIONSENSOR_DUR 0x02
+#define FLOC_EEPARAM_UPDATE_ON_RESTART 0x03
 #define EEPARAM_SETTINGS_START 0x08
+
+enum EEPROOM_HTTP_UPDATE_FLAG {
+ EEPROOM_HTTP_UPDATE_DISABLED,
+ EEPROOM_HTTP_UPDATE_DO_ON_REBOOT,
+ EEPROOM_HTTP_NO_UPDATE_FOUND,
+ EEPROOM_HTTP_UPDATE_STARTED,
+ EEPROOM_HTTP_UPDATE_SUCCESS,
+ EEPROOM_HTTP_UPDATE_FAILED,
+};
 
 class EepromConfigClass {
   public:
@@ -73,6 +84,7 @@ class EepromConfigClass {
     strcpy(settings.ssid, SETTING_DEFAULT_SSID);
     strcpy(settings.password, SETTING_DEFAULT_PASSWORD);
   }
+
   boolean readEepromParams(){
     int isValid = EEPROM.read( FLOC_EEPARAM_SAVED );
     boolean status = false;
@@ -90,6 +102,7 @@ class EepromConfigClass {
     }
     return status;
   }
+
   boolean set_mqtt_server(const char* mqtt_server){
     if (strlen(mqtt_server) > sizeof(settings.mqtt_server)){
       Serial.println( "mqtt_server too long");
@@ -118,6 +131,22 @@ class EepromConfigClass {
     EEPROM.commit();
     return true;
   }
+  
+  inline void store_update_firmware_version(uint16_t ver){    
+    settings.update_fw_ver = ver;
+    EEPROM.put(EEPARAM_SETTINGS_START, settings);
+    EEPROM.commit();    
+  }
+
+  inline void set_http_update_flag(uint8_t update_flag){    
+    EEPROM.put(FLOC_EEPARAM_UPDATE_ON_RESTART, update_flag);
+    EEPROM.commit();    
+  }
+
+  inline uint8_t get_http_update_flag(){    
+    return EEPROM.read(FLOC_EEPARAM_UPDATE_ON_RESTART);
+  }  
+  
   boolean store_log_freq(int val){
     settings.log_freq = val;
     EEPROM.put(EEPARAM_SETTINGS_START, settings);

@@ -1,4 +1,7 @@
 const int FW_VERSION = 1244;
+
+#define NO_GLOBAL_HTTPUPDATE
+
 #include "debug.h"
 
 #include <DNSServer.h>
@@ -72,6 +75,12 @@ volatile bool f_processConfig=false;
 volatile bool f_deleteRemoteConfig=false;
 volatile bool f_handleActorEvent=false;
 
+#define MAX_JSON_MSG_LEN 255
+StaticJsonBuffer<MAX_JSON_MSG_LEN> jsonBuffer;
+
+char tempSendPayloadBuffer[256];
+char tempReceivePayloadBuffer[MAX_JSON_MSG_LEN + 1];
+char tempTopicBuffer[128];
 
 ADC_MODE(ADC_VCC);
 WiFiManager wifiManager;
@@ -133,24 +142,50 @@ void enterWifiManager(){
     delay(1000);
   }
 }
-/*
+
 void httpUpdate(){  
-  t_httpUpdate_return ret = ESPhttpUpdate.update("http://192.168.1.11/file.bin"); //Location of your binary file
-  //t_httpUpdate_return  ret = ESPhttpUpdate.update("https://server/file.bin");
-  
-  switch (ret) {
-    case HTTP_UPDATE_FAILED:
-      Serial.printf("HTTP_UPDATE_FAILD Error (%d): %s", ESPhttpUpdate.getLastError(), ESPhttpUpdate.getLastErrorString().c_str());
-      break;
-    case HTTP_UPDATE_NO_UPDATES:
-      Serial.println("HTTP_UPDATE_NO_UPDATES");
-      break;
-    case HTTP_UPDATE_OK:
-      Serial.println("HTTP_UPDATE_OK");
-      break;
+  if (EepromConfig.get_http_update_flag() == EEPROOM_HTTP_UPDATE_STARTED){  // a previous run has been ran and a reboot occured 
+    EepromConfig.set_http_update_flag(EEPROOM_HTTP_UPDATE_SUCCESS);
+    return;
+  }    
+  if (EepromConfig.get_http_update_flag() == EEPROOM_HTTP_UPDATE_DO_ON_REBOOT){  
+    
+    ESP8266HTTPUpdate ESPhttpUpdate;    
+    char* server_ip = EepromConfig.settings.mqtt_server;
+    uint16_t update_fw_ver = EepromConfig.settings.update_fw_ver;
+    if (update_fw_ver == FW_VERSION){
+      SERIAL_DEBUGC("Will not update - already at version ");    
+      SERIAL_DEBUG(update_fw_ver);
+      EepromConfig.set_http_update_flag(EEPROOM_HTTP_NO_UPDATE_FOUND);
+      return; 
+    }
+
+    snprintf(tempSendPayloadBuffer, sizeof(tempSendPayloadBuffer),  "http://%s/%d.bin", server_ip, update_fw_ver); //misusing the tempSendPayloadBuffer to store the url
+    EepromConfig.set_http_update_flag(EEPROOM_HTTP_UPDATE_STARTED);
+    ESPhttpUpdate.rebootOnUpdate(false);
+    SERIAL_DEBUGC("Start httpUpdate from ");
+    SERIAL_DEBUG(tempSendPayloadBuffer);
+    t_httpUpdate_return ret = ESPhttpUpdate.update(tempSendPayloadBuffer); //Location of your binary file  
+    switch (ret) {
+      case HTTP_UPDATE_FAILED:
+        Serial.printf("HTTP_UPDATE_FAIL Error (%d): %s", ESPhttpUpdate.getLastError(), ESPhttpUpdate.getLastErrorString().c_str());
+        EepromConfig.set_http_update_flag(EEPROOM_HTTP_UPDATE_FAILED);
+        break;
+      case HTTP_UPDATE_NO_UPDATES:
+        Serial.println("HTTP_UPDATE_NO_UPDATES");
+        EepromConfig.set_http_update_flag(EEPROOM_HTTP_NO_UPDATE_FOUND);      
+        break;
+      case HTTP_UPDATE_OK:
+        Serial.println("HTTP_UPDATE_OK");
+        EepromConfig.set_http_update_flag(EEPROOM_HTTP_UPDATE_SUCCESS);
+        ESP.restart();
+        break;
+      default:
+        EepromConfig.set_http_update_flag(EEPROOM_HTTP_UPDATE_FAILED);
+    }
   }
 }
-*/
+
 char actor_topic[32] ;
 char config_topic[32];
 char report_topic[32];
@@ -235,7 +270,7 @@ void setup(void) {
       delay(100);
       i++;
       if (i > 4) {
-              Serial.println("WiFi fail, enter WiFiManager ..");
+              Serial.println("Start WiFiManager ..");
               enterWifiManager();
             };
     }
@@ -246,21 +281,22 @@ void setup(void) {
     enterWifiManager();
   }
   //if we reached this place, we're connected
-  Serial.print("Connected. IP address: ");
+  Serial.print("Connected. IP: ");
   Serial.println(WiFi.localIP());
-  
+
+  httpUpdate();
+      
   ESP.wdtEnable(5000);
   pinMode(ACTOR_PIN, OUTPUT);
   #ifdef HAS_BUTTON
   pinMode(BUTTON_PIN, INPUT_PULLUP);
   #endif
-  //digitalWrite(SONOFF_LED, 1);
-  //pinMode(SONOFF_LED, INPUT_PULLUP);
+  
   #ifdef HAS_DHT_SENSOR
   dht.begin();
   #endif  
+  
   //Serial.print("Connect MQTT srv ");
-  //Serial.println(EepromConfig.settings.mqtt_server);
   WiFi.hostByName(EepromConfig.settings.mqtt_server, mqttServerIp) ;
   if (mqttServerIp == IPAddress(0,0,0,0)){ //host name or ip adress is wrong, enter config
     Serial.println("Mqtt server config error, enter config");
@@ -280,13 +316,6 @@ void setup(void) {
   timer_heartbeat.attach(EepromConfig.settings.log_freq, timer_heartbeat_handler);
   timer_mqttConnCheck.attach(2, timer_mqttConnCheck_handler);
 }
-
-#define MAX_JSON_MSG_LEN 255
-StaticJsonBuffer<MAX_JSON_MSG_LEN> jsonBuffer;
-
-char tempSendPayloadBuffer[256];
-char tempReceivePayloadBuffer[MAX_JSON_MSG_LEN + 1];
-char tempTopicBuffer[128];
 
 #ifdef HAS_DHT_SENSOR
 const char jsonFormatDht[] = "{\"temperature\":%s,\"humidity\":%s,\"batt\":%s}";
@@ -487,9 +516,18 @@ bool handleConfigMsg(){
         }
         int report = jsonRoot["report"];
         if (report){
-          SERIAL_DEBUGC ("Config report");
+          SERIAL_DEBUG ("Config report");
           f_SendConfigReport = true;
-        }        
+        }  
+        uint16_t update_firmware_version = jsonRoot["update"];
+        if (update_firmware_version){
+          SERIAL_DEBUGC ("Set update FW ");
+          SERIAL_DEBUGC (update_firmware_version);
+          EepromConfig.store_update_firmware_version(update_firmware_version);
+          EepromConfig.set_http_update_flag(EEPROOM_HTTP_UPDATE_DO_ON_REBOOT);
+          ESP.restart();
+        }                
+        
         #ifdef HAS_MOTION_SENSOR
         int val = jsonRoot["motion_sensor_timer"];
         if (val){
