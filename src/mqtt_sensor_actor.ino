@@ -203,7 +203,7 @@ volatile bool sendActorState = false;
 Ticker timer_light_on;
 
 void set_actor(){
-    pwmval = 1024; //
+    pwmval = 1024; 
     digitalWrite(ACTOR_PIN, EepromConfig.settings.actor_state );
     //digitalWrite(SONOFF_LED, !EepromConfig.settings.actor_state );
     sendActorState = true;
