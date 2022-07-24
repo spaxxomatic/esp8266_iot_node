@@ -23,6 +23,7 @@ typedef struct {
   uint16_t update_fw_ver;
 } settings_t ;
 
+
 #define SSID_AUTOCONFIG "**AUTO+**"
 
 const char PPARAM_SSID[32] PROGMEM = SSID_AUTOCONFIG;
@@ -37,6 +38,8 @@ const char PPARAM_PASSWORD[16] PROGMEM = "11213141";
 #define FLOC_EEPARAM_MOTIONSENSOR_DUR 0x02
 #define FLOC_EEPARAM_UPDATE_ON_RESTART 0x03
 #define EEPARAM_SETTINGS_START 0x08
+#define EEPARAM_LASTERR_ADDR EEPARAM_SETTINGS_START + sizeof(settings_t) + 1
+#define EEPARAM_LASTERR_LEN 64
 
 enum EEPROOM_HTTP_UPDATE_FLAG {
  EEPROOM_HTTP_UPDATE_DISABLED,
@@ -46,6 +49,7 @@ enum EEPROOM_HTTP_UPDATE_FLAG {
  EEPROOM_HTTP_UPDATE_SUCCESS,
  EEPROOM_HTTP_UPDATE_FAILED,
 };
+
 
 class EepromConfigClass {
   public:
@@ -105,7 +109,7 @@ class EepromConfigClass {
 
   boolean set_mqtt_server(const char* mqtt_server){
     if (strlen(mqtt_server) > sizeof(settings.mqtt_server)){
-      Serial.println( "mqtt_server too long");
+      SERIAL_DEBUG( "mqtt_server too long");
       return false;
     }
       strcpy (settings.mqtt_server, mqtt_server);
@@ -116,7 +120,7 @@ class EepromConfigClass {
   }
   boolean store_location(const char* location){
     if (strlen(location) > sizeof(settings.location)){
-      Serial.println( "Topic too long");
+      SERIAL_DEBUG( "Location too long");
       return false;
     }
       strcpy (settings.location, location);
@@ -157,11 +161,11 @@ class EepromConfigClass {
   boolean store_conn_info(const char* new_ssid, const char* new_password, const char* mqtt_server){
     Serial.println( "store_conn_info");
     if (strlen(new_ssid) > sizeof(settings.ssid)){
-      Serial.println( "ssid too long");
+      SERIAL_DEBUG( "ssid too long");
       return false;
     }
     if (strlen(new_password) > sizeof(settings.password)){
-      Serial.println( "pwd too long");
+      SERIAL_DEBUG( "pwd too long");
       return false;
     }
     if (! set_mqtt_server(mqtt_server) ) return false;
@@ -173,6 +177,20 @@ class EepromConfigClass {
     Serial.println( "Eeprom params saved");
     EEPROM.end();
     return true;
+  }
+
+  boolean store_lasterr(const char* errstr){
+    if (strlen(errstr) > EEPARAM_LASTERR_LEN){
+      SERIAL_DEBUG( "erstr too long");
+      return false;
+    }
+    EEPROM.put(EEPARAM_LASTERR_ADDR, errstr);
+    EEPROM.commit();
+    return true;
+  }  
+  
+  inline void get_lasterr(char* buff){
+    EEPROM.get(EEPARAM_LASTERR_ADDR, buff);
   }
 };
 

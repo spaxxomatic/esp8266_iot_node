@@ -3,8 +3,6 @@
 #define SONOFF_BOARD 1
 #define NODEMCU_BOARD 2
 
-#define FW_VERSION 1266
-
 #define BOARDTYPE SONOFF_BOARD
 //#define BOARDTYPE NODEMCU_BOARD
 
@@ -57,7 +55,7 @@
 #endif
 
 #ifndef BOARD_CONFIG_OK
-#error Board is not configured or config wrong. Use BOARDTYPE <SONOFF_BOARD|NODEMCU_BOARD
+#error Board is not configu d or config wrong. Use BOARDTYPE <SONOFF_BOARD|NODEMCU_BOARD
 #endif
 
 #endif //config_h

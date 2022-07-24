@@ -1,5 +1,3 @@
-const int FW_VERSION = 1244;
-
 #define NO_GLOBAL_HTTPUPDATE
 
 #include "debug.h"
@@ -11,6 +9,7 @@ const int FW_VERSION = 1244;
 #include <EEPROM.h>
 #include <ArduinoJson.h>
 #include "config.h"
+#include "version.h"
 #include "eeprom_settings.h"
 #include <AsyncMqttClient.h>
 #include <WiFiManager.h>
@@ -58,6 +57,7 @@ uint8_t cnt_motion_sensor_countdown=0xFF;
 unsigned int batt;
 #define MODE_SENSOR_DISABLED 'D'
 #define MODE_SENSOR_ENABLED 1
+#define FW_UPLOAD_PORT 9999
 unsigned int sensorMode = MODE_SENSOR_ENABLED;
 int pwmdir = 0;
 double battV;
@@ -122,7 +122,8 @@ void timer_heartbeat_handler(){
 
 void timer_mqttConnCheck_handler(){
 if (!mqttClient.connected()){
-  f_reconnect = true;
+  //we do not call here reconnect, since we're in a timer routine and it must exit before any yield is called
+  f_reconnect = true; //trigger reconnection in main thread
 }
 }
 
@@ -143,24 +144,27 @@ void enterWifiManager(){
   }
 }
 
+#define MSG_UPD_VERSION_EXISTS "Upd skip, same fw version"
+#define MSG_UPD_VERSION_NOTFOUND "HTTP_UPDATE_NO_UPDATES"
+#define MSG_HTTP_UPDATE_OK "HTTP_UPDATE_OK"
 void httpUpdate(){  
   if (EepromConfig.get_http_update_flag() == EEPROOM_HTTP_UPDATE_STARTED){  // a previous run has been ran and a reboot occured 
     EepromConfig.set_http_update_flag(EEPROOM_HTTP_UPDATE_SUCCESS);
     return;
   }    
-  if (EepromConfig.get_http_update_flag() == EEPROOM_HTTP_UPDATE_DO_ON_REBOOT){  
-    
+  if (EepromConfig.get_http_update_flag() == EEPROOM_HTTP_UPDATE_DO_ON_REBOOT){      
     ESP8266HTTPUpdate ESPhttpUpdate;    
     char* server_ip = EepromConfig.settings.mqtt_server;
     uint16_t update_fw_ver = EepromConfig.settings.update_fw_ver;
     if (update_fw_ver == FW_VERSION){
-      SERIAL_DEBUGC("Will not update - already at version ");    
+      SERIAL_DEBUGC(MSG_UPD_VERSION_EXISTS);       
       SERIAL_DEBUG(update_fw_ver);
       EepromConfig.set_http_update_flag(EEPROOM_HTTP_NO_UPDATE_FOUND);
+      EepromConfig.store_lasterr(MSG_UPD_VERSION_EXISTS);
       return; 
     }
 
-    snprintf(tempSendPayloadBuffer, sizeof(tempSendPayloadBuffer),  "http://%s/%d.bin", server_ip, update_fw_ver); //misusing the tempSendPayloadBuffer to store the url
+    snprintf(tempSendPayloadBuffer, sizeof(tempSendPayloadBuffer),  "http://%s:%i/%d.bin", server_ip, FW_UPLOAD_PORT, update_fw_ver); //misusing the tempSendPayloadBuffer to store the url
     EepromConfig.set_http_update_flag(EEPROOM_HTTP_UPDATE_STARTED);
     ESPhttpUpdate.rebootOnUpdate(false);
     SERIAL_DEBUGC("Start httpUpdate from ");
@@ -174,10 +178,12 @@ void httpUpdate(){
       case HTTP_UPDATE_NO_UPDATES:
         Serial.println("HTTP_UPDATE_NO_UPDATES");
         EepromConfig.set_http_update_flag(EEPROOM_HTTP_NO_UPDATE_FOUND);      
+        EepromConfig.store_lasterr(MSG_UPD_VERSION_NOTFOUND);
         break;
       case HTTP_UPDATE_OK:
-        Serial.println("HTTP_UPDATE_OK");
+        Serial.println(HTTP_UPDATE_OK);
         EepromConfig.set_http_update_flag(EEPROOM_HTTP_UPDATE_SUCCESS);
+        EepromConfig.store_lasterr(MSG_HTTP_UPDATE_OK);
         ESP.restart();
         break;
       default:
@@ -322,7 +328,7 @@ const char jsonFormatDht[] = "{\"temperature\":%s,\"humidity\":%s,\"batt\":%s}";
 #endif
 const char jsonFormatBattOnly[] = "{\"batt\":%s}";
 const char jsonFormatErr[] = "{\"error\":\"%s\"}";
-const char jsonFormatReport[] = "{\"fw\":\"%d\",\"location\":\"%s\",\"cap\":\"%s\"}";
+const char jsonFormatReport[] = "{\"fw\":\"%d\",\"location\":\"%s\",\"cap\":\"%s\", \"lasterr\":\"%s\"}";
 
 float batt_voltage=0.00f;
 char tbuff[8];
@@ -343,37 +349,6 @@ void go_deepsleep(unsigned int seconds){
 #endif
 }
 #endif
-/*
-void handle_serial_cmd(){
-  if (Serial.available() > 0) {
-   String serial_rcv = Serial.readStringUntil('\r');
-   Serial.println(serial_rcv);
-   if (serial_rcv.substring(0,2) == "WM"){
-     SERIAL_DEBUGC( "Enter WM");
-      enterWifiManager();
-    }
-    if (serial_rcv.substring(0,2) == "RP"){
-      SERIAL_DEBUG( "Read params");
-      Serial.print("Log freq:");
-      Serial.println(EepromConfig.settings.log_freq);
-      Serial.print("IP:");
-      Serial.println(WiFi.localIP());
-      Serial.print("MQTT server:");
-      Serial.println(EepromConfig.settings.mqtt_server);
-      Serial.print("Actor:");
-      Serial.println(actor_topic);
-      Serial.print("Sensor:");
-      Serial.println(sensor_topic);
-      Serial.print("Config:");
-      Serial.println(config_topic);
-      Serial.print("Actor state: ");
-      Serial.println(EepromConfig.settings.actor_state);
-      Serial.print("Log freq");
-      Serial.println(EepromConfig.settings.log_freq);
-     }
-  }
-}
-*/
 
 void sendHeartbeat(){
   batt_voltage = ESP.getVcc()/(float)1000;
@@ -387,13 +362,13 @@ void sendHeartbeat(){
 
 void loop(void) {
   yield();
-  response_loop(100);
+  response_loop(50);
 }
 
-void mqtt_check_conn(){ //retry reconnect every 2 seconds  
+void mqtt_check_conn(){ //retry reconnect should be called every 2 seconds 
     SERIAL_DEBUG("MQTT CKCON") ;   
     if (!mqttClient.connected()){        
-        SERIAL_DEBUG("MQTT send reconnect") ;      
+        SERIAL_DEBUG("MQTT reconnect ..") ;      
         mqttClient.connect();
         SERIAL_DEBUG("MQTT reconnect ok") ;      
     }
@@ -459,7 +434,10 @@ void response_loop(unsigned int with_wait){
   }
  if (f_SendConfigReport){
     f_SendConfigReport = false;  
-    sprintf(tempSendPayloadBuffer,jsonFormatReport, FW_VERSION, EepromConfig.settings.location, CAPABILITIES);
+    char lasterr[EEPARAM_LASTERR_LEN] ;
+    EepromConfig.get_lasterr(lasterr);
+    lasterr[EEPARAM_LASTERR_LEN-1] = '\0'; //buffer overflow protection
+    sprintf(tempSendPayloadBuffer,jsonFormatReport, FW_VERSION, EepromConfig.settings.location, CAPABILITIES, lasterr);
     mqttClient.publish(report_topic, 1, true, tempSendPayloadBuffer);
   }
 }
@@ -477,14 +455,9 @@ bool handleConfigMsg(){
       return false;
     }
     sem_lock_tempReceivePayloadBuffer = SEM_BUFF_READING;
-    SERIAL_DEBUG ("HCM");    
-    /*if (strcmp(tempReceivePayloadBuffer,"BOOT")){
-      SERIAL_DEBUG ("MQTT REBOOT REQ");
-      ESP.restart();
-    }
-    */
+    SERIAL_DEBUG ("HCM");
     SERIAL_DEBUG (tempReceivePayloadBuffer);
-    JsonObject& jsonRoot = jsonBuffer.parseObject(tempReceivePayloadBuffer); //singleton holding the incoming message     
+    JsonObject& jsonRoot = jsonBuffer.parseObject(tempReceivePayloadBuffer); 
     // Test if parsing succeeds.
     if (!jsonRoot.success()) {
         SERIAL_DEBUG("Payld parse fail");        
@@ -516,7 +489,6 @@ bool handleConfigMsg(){
         }
         int report = jsonRoot["report"];
         if (report){
-          SERIAL_DEBUG ("Config report");
           f_SendConfigReport = true;
         }  
         uint16_t update_firmware_version = jsonRoot["update"];
@@ -542,8 +514,7 @@ bool handleConfigMsg(){
         #endif
         //f_deleteRemoteConfig = true;
     }    
-    jsonBuffer.clear();
-    SERIAL_DEBUG ("HCM ret");    
+    jsonBuffer.clear();    
     return true;    
 }
 
@@ -600,13 +571,12 @@ void onMqttConnect(bool sessionPresent) {
   SERIAL_DEBUG("MqttConnect");
   SERIAL_DEBUG(sessionPresent);
   f_subscribe = true;
+  f_SendConfigReport = true;
 }
 
 void onMqttDisconnect(AsyncMqttClientDisconnectReason reason) {
   Serial.print("Lost broker conn :");
-  Serial.println((int) reason);
-  SERIAL_DEBUG("Trigger mqtt reconnect");
-  f_reconnect = true;
+  Serial.println((int) reason);  
 }
 
 void onMqttSubscribe(uint16_t packetId, uint8_t qos) {
