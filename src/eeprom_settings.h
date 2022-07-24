@@ -21,6 +21,7 @@ typedef struct {
   int deepsleep;
   int actor_state;
   uint16_t update_fw_ver;
+  uint32_t motion_sensor_off_timer;
 } settings_t ;
 
 
@@ -29,7 +30,8 @@ typedef struct {
 const char PPARAM_SSID[32] PROGMEM = SSID_AUTOCONFIG;
 const char PPARAM_PASSWORD[16] PROGMEM = "11213141";
 
-#define SETTING_DEFAULT_LOGFREQ 10
+#define SETTING_DEFAULT_LOGFREQ 60
+#define SETTING_MIN_OFF_TIMER 5
 #define SETTING_DEFAULT_SSID PPARAM_SSID
 #define SETTING_DEFAULT_PASSWORD PPARAM_PASSWORD
 #define SETTING_DEFAULT_MQTT_SERVER "192.168.1.11"
@@ -50,15 +52,12 @@ enum EEPROOM_HTTP_UPDATE_FLAG {
  EEPROOM_HTTP_UPDATE_FAILED,
 };
 
-
 class EepromConfigClass {
   public:
   settings_t settings;
-  #ifdef HAS_MOTION_SENSOR
-  uint8_t motion_sensor_off_timer = MOTION_SENSOR_DEFAULT_TIMER;
-  #endif
+  
   void begin(){ //read all params from eeprom
-    EEPROM.begin(512);
+    EEPROM.begin(EEPARAM_SIZE);
     readEepromParams();
   }
 
@@ -75,15 +74,17 @@ class EepromConfigClass {
   }
 
   #ifdef HAS_MOTION_SENSOR
-  void storeMotionSensorOffTimer(uint8_t val){
-    motion_sensor_off_timer = val;
-    EEPROM.write(FLOC_EEPARAM_MOTIONSENSOR_DUR, val);
+  void storeMotionSensorOffTimer(uint32_t val){
+    
+    settings.motion_sensor_off_timer = val;
+    EEPROM.put(EEPARAM_SETTINGS_START + offsetof(settings,motion_sensor_off_timer), settings.motion_sensor_off_timer);
     EEPROM.commit();
   }
   #endif
   void getDefaultConfig(){
     //init with default values
     settings.log_freq = SETTING_DEFAULT_LOGFREQ;
+    settings.motion_sensor_off_timer = SETTING_MIN_OFF_TIMER;
     strcpy(settings.mqtt_server , SETTING_DEFAULT_MQTT_SERVER);
     strcpy(settings.ssid, SETTING_DEFAULT_SSID);
     strcpy(settings.password, SETTING_DEFAULT_PASSWORD);
@@ -97,9 +98,10 @@ class EepromConfigClass {
       if (settings.log_freq < SETTING_DEFAULT_LOGFREQ){
         settings.log_freq = SETTING_DEFAULT_LOGFREQ;
       }
-      #ifdef HAS_MOTION_SENSOR
-      motion_sensor_off_timer = EEPROM.read(FLOC_EEPARAM_MOTIONSENSOR_DUR);
-      #endif
+      if (settings.motion_sensor_off_timer < SETTING_MIN_OFF_TIMER){
+        settings.motion_sensor_off_timer = SETTING_MIN_OFF_TIMER;
+      }
+
       status = true;
     }else{
       getDefaultConfig();
@@ -118,6 +120,7 @@ class EepromConfigClass {
     //EEPROM.commit();
     return true;
   }
+
   boolean store_location(const char* location){
     if (strlen(location) > sizeof(settings.location)){
       SERIAL_DEBUG( "Location too long");

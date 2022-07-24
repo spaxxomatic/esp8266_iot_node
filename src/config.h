@@ -55,7 +55,7 @@
 #endif
 
 #ifndef BOARD_CONFIG_OK
-#error Board is not configu d or config wrong. Use BOARDTYPE <SONOFF_BOARD|NODEMCU_BOARD
+#error Board is not configured or config wrong. Use BOARDTYPE <SONOFF_BOARD|NODEMCU_BOARD
 #endif
 
 #endif //config_h

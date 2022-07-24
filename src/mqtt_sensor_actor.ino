@@ -181,7 +181,7 @@ void httpUpdate(){
         EepromConfig.store_lasterr(MSG_UPD_VERSION_NOTFOUND);
         break;
       case HTTP_UPDATE_OK:
-        Serial.println(HTTP_UPDATE_OK);
+        Serial.println(MSG_HTTP_UPDATE_OK);
         EepromConfig.set_http_update_flag(EEPROOM_HTTP_UPDATE_SUCCESS);
         EepromConfig.store_lasterr(MSG_HTTP_UPDATE_OK);
         ESP.restart();
@@ -213,7 +213,7 @@ void actor_on(bool permanent_on_disable_timer){
     set_actor();
     #ifdef HAS_MOTION_SENSOR
     if (! permanent_on_disable_timer)
-      timer_light_on.once(EepromConfig.motion_sensor_off_timer, actor_off);
+      timer_light_on.once(float(EepromConfig.settings.motion_sensor_off_timer), actor_off);
     #endif  
 }
 
