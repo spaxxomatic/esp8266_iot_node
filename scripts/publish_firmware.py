@@ -1,6 +1,7 @@
 import requests
 import sys
 from os.path import basename
+import os 
 
 Import('env')
 
@@ -39,20 +40,26 @@ def publish_firmware(source, target, env):
     headers = {
         #"Content-type": "application/octet-stream"
     }
+    
+    upload_method = 'SAMBA_UPLOAD'
+    
+    if (upload_method == 'SAMBA_UPLOAD'):    
+        server_share = '\\\\192.168.1.11\\nutiu\\fw_server\\'
+        cmd = " ".join(('cp', firmware_path, server_share + str(version) + '.bin'))
+        print (cmd)
+        os.system(cmd)
 
-    r = None
-    try:
-        r = requests.post(url,
-                         files={"files":(str(version) + ".bin", open(firmware_path, "rb"))}
-                         #,
-                         #auth=(bintray_config.get("user"),
-                         #      bintray_config['api_token'])
-                         )
-        r.raise_for_status()
-    except requests.exceptions.RequestException as e:
-        sys.stderr.write("Failed to submit package: %s\n" %
-                         ("%s\n%s" % (r.status_code, r.text) if r else str(e)))
-        env.Exit(1)
+    if (upload_method == 'HTTP_POST_UPLOAD'):
+        r = None
+        try:
+            r = requests.post(url,
+                            files={"files":(str(version) + ".bin", open(firmware_path, "rb"))}
+                            )
+            r.raise_for_status()
+        except requests.exceptions.RequestException as e:
+            sys.stderr.write("Failed to submit package: %s\n" %
+                            ("%s\n%s" % (r.status_code, r.text) if r else str(e)))
+            env.Exit(1)
 
     print("The firmware has been successfuly uploaded to repo")
 

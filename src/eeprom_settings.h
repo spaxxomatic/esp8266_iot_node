@@ -43,6 +43,8 @@ const char PPARAM_PASSWORD[16] PROGMEM = "11213141";
 #define EEPARAM_LASTERR_ADDR EEPARAM_SETTINGS_START + sizeof(settings_t) + 1
 #define EEPARAM_LASTERR_LEN 64
 
+#define EEPARAM_SIZE EEPARAM_LASTERR_ADDR + EEPARAM_LASTERR_LEN
+
 enum EEPROOM_HTTP_UPDATE_FLAG {
  EEPROOM_HTTP_UPDATE_DISABLED,
  EEPROOM_HTTP_UPDATE_DO_ON_REBOOT,
@@ -77,7 +79,7 @@ class EepromConfigClass {
   void storeMotionSensorOffTimer(uint32_t val){
     
     settings.motion_sensor_off_timer = val;
-    EEPROM.put(EEPARAM_SETTINGS_START + offsetof(settings,motion_sensor_off_timer), settings.motion_sensor_off_timer);
+    EEPROM.put(EEPARAM_SETTINGS_START + offsetof(settings_t, motion_sensor_off_timer), settings.motion_sensor_off_timer);
     EEPROM.commit();
   }
   #endif
@@ -132,6 +134,7 @@ class EepromConfigClass {
     EEPROM.commit();
     return true;
   }
+
   boolean store_deepsleep(int val){
     settings.deepsleep = val;
     EEPROM.put(EEPARAM_SETTINGS_START, settings);

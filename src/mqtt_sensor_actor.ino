@@ -1,4 +1,9 @@
 #define NO_GLOBAL_HTTPUPDATE
+//#define DEBUG_ESP_HTTP_CLIENT
+// #define DEBUG_ESP_UPDATER
+//#define DEBUG_ESP_HTTP_UPDATE
+//#define DEBUG_ESP_HTTP_CLIENT
+// #define DEBUG_ESP_PORT Serial
 
 #include "debug.h"
 
@@ -13,8 +18,8 @@
 #include "eeprom_settings.h"
 #include <AsyncMqttClient.h>
 #include <WiFiManager.h>
-#include<esp8266httpupdate.h>
-//#include <ArduinoOTA.h>
+#include <esp8266httpupdate.h>
+
 #ifdef HAS_DHT_SENSOR
 #include "DHT.h"
 #endif
@@ -164,12 +169,17 @@ void httpUpdate(){
       return; 
     }
 
-    snprintf(tempSendPayloadBuffer, sizeof(tempSendPayloadBuffer),  "http://%s:%i/%d.bin", server_ip, FW_UPLOAD_PORT, update_fw_ver); //misusing the tempSendPayloadBuffer to store the url
+    //snprintf(tempSendPayloadBuffer, sizeof(tempSendPayloadBuffer),  "http://%s:%i/%d.bin", server_ip, FW_UPLOAD_PORT, update_fw_ver); //misusing the tempSendPayloadBuffer to store the url
+    snprintf(tempSendPayloadBuffer, sizeof(tempSendPayloadBuffer),  "%d.bin", update_fw_ver); //misusing the tempSendPayloadBuffer to store the url
     EepromConfig.set_http_update_flag(EEPROOM_HTTP_UPDATE_STARTED);
     ESPhttpUpdate.rebootOnUpdate(false);
+    ESP.wdtDisable();
     SERIAL_DEBUGC("Start httpUpdate from ");
     SERIAL_DEBUG(tempSendPayloadBuffer);
-    t_httpUpdate_return ret = ESPhttpUpdate.update(tempSendPayloadBuffer); //Location of your binary file  
+        
+    //t_httpUpdate_return ret = ESPhttpUpdate.update(tempSendPayloadBuffer); //Location of your binary file      
+    t_httpUpdate_return ret = ESPhttpUpdate.update(server_ip, FW_UPLOAD_PORT, tempSendPayloadBuffer, String(FW_VERSION)); 
+    //t_httpUpdate_return ret = ESPhttpUpdate.update(tempSendPayloadBuffer, FW_VERSION); 
     switch (ret) {
       case HTTP_UPDATE_FAILED:
         Serial.printf("HTTP_UPDATE_FAIL Error (%d): %s", ESPhttpUpdate.getLastError(), ESPhttpUpdate.getLastErrorString().c_str());
@@ -183,7 +193,7 @@ void httpUpdate(){
       case HTTP_UPDATE_OK:
         Serial.println(MSG_HTTP_UPDATE_OK);
         EepromConfig.set_http_update_flag(EEPROOM_HTTP_UPDATE_SUCCESS);
-        EepromConfig.store_lasterr(MSG_HTTP_UPDATE_OK);
+        //EepromConfig.store_lasterr(MSG_HTTP_UPDATE_OK);
         ESP.restart();
         break;
       default:
@@ -260,6 +270,11 @@ void setup(void) {
   sprintf(sensor_topic, "/sensor/%s", str_mac);
   sprintf(report_topic, "/report/%s", str_mac);
   Serial.println(str_mac);
+  SERIAL_DEBUGC("Free space") ;
+  SERIAL_DEBUG(ESP.getFreeSketchSpace());
+  SERIAL_DEBUGC("Flash size") ;
+  SERIAL_DEBUG(ESP.getFlashChipRealSize()) ;
+  
   //set up timer
   os_timer_setfn(&myTimer, timerCallback, NULL);
   os_timer_arm(&myTimer, OS_MAIN_TIMER_MS, true);
