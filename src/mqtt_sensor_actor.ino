@@ -48,6 +48,8 @@ void timerCallback(void *pArg) {
 }
 
 IPAddress mqttServerIp;
+char* mqttUsername;
+char* mqttPassword;
 AsyncMqttClient mqttClient;
 
 #ifdef HAS_DHT_SENSOR
@@ -98,7 +100,7 @@ void saveConfigParams() {
   SERIAL_DEBUG(wifiManager.getMqttAddress());
   //EepromConfig.store_conn_info(WiFi.SSID().c_str(), WiFi.psk().c_str());
   if (!EepromConfig.store_conn_info(wifiManager.getValidSsid(),
-    wifiManager.getValidPwd(), wifiManager.getMqttAddress()))
+    wifiManager.getValidPwd(), wifiManager.getMqttAddress(), wifiManager.getMqttUser(), wifiManager.getMqttPassword()))
     {
       SERIAL_DEBUG("Eeprom save failed");
     };
@@ -141,7 +143,7 @@ void enterWifiManager(){
   wifiManager.setConfigPortalTimeout(300); //wait 5 min in config mode
   wifiManager.setConnectTimeout(20); //wait max 20 sec for wlan connect
   wifiManager.setSaveConfigCallback(*saveConfigParams);
-  if (!wifiManager.startConfigPortal("ESP_WAITING_CONFIG", "pass")) {
+  if (!wifiManager.startConfigPortal("ESP_WAITING_CFG", "pass")) {
     Serial.println("Failed to connect and hit timeout");
     delay(3000);
     ESP.reset();
@@ -288,9 +290,9 @@ void setup(void) {
       Serial.println(EepromConfig.settings.ssid);
       Serial.println(EepromConfig.settings.password);
       WiFi.begin(EepromConfig.settings.ssid, EepromConfig.settings.password);
-      delay(100);
+      delay(400);
       i++;
-      if (i > 4) {
+      if (i > 10) {
               Serial.println("Start WiFiManager ..");
               enterWifiManager();
             };
@@ -323,8 +325,11 @@ void setup(void) {
     Serial.println("Mqtt server config error, enter config");
     enterWifiManager();
   }
+  
   Serial.println(mqttServerIp);
-  mqttClient.setServer(mqttServerIp, 1883);
+  
+  mqttClient.setServer(mqttServerIp, 1883);  
+  mqttClient.setCredentials(EepromConfig.settings.mqtt_username, EepromConfig.settings.mqtt_password);
   mqttClient.onConnect(onMqttConnect);
   mqttClient.onDisconnect(onMqttDisconnect);
   mqttClient.onSubscribe(onMqttSubscribe);

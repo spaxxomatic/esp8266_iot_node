@@ -22,6 +22,8 @@ typedef struct {
   int actor_state;
   uint16_t update_fw_ver;
   uint32_t motion_sensor_off_timer;
+  char mqtt_username[32];
+  char mqtt_password[32];  
 } settings_t ;
 
 
@@ -35,7 +37,8 @@ const char PPARAM_PASSWORD[16] PROGMEM = "11213141";
 #define SETTING_DEFAULT_SSID PPARAM_SSID
 #define SETTING_DEFAULT_PASSWORD PPARAM_PASSWORD
 #define SETTING_DEFAULT_MQTT_SERVER "192.168.1.11"
-
+#define SETTING_DEFAULT_MQTT_USERNAME "mqttactor"
+#define SETTING_DEFAULT_MQTT_PASSWORD "mqttpass"
 #define FLOC_EEPARAM_SAVED 0x01
 #define FLOC_EEPARAM_MOTIONSENSOR_DUR 0x02
 #define FLOC_EEPARAM_UPDATE_ON_RESTART 0x03
@@ -88,6 +91,8 @@ class EepromConfigClass {
     settings.log_freq = SETTING_DEFAULT_LOGFREQ;
     settings.motion_sensor_off_timer = SETTING_MIN_OFF_TIMER;
     strcpy(settings.mqtt_server , SETTING_DEFAULT_MQTT_SERVER);
+    strcpy(settings.mqtt_username , SETTING_DEFAULT_MQTT_USERNAME);
+    strcpy(settings.mqtt_password , SETTING_DEFAULT_MQTT_PASSWORD);
     strcpy(settings.ssid, SETTING_DEFAULT_SSID);
     strcpy(settings.password, SETTING_DEFAULT_PASSWORD);
   }
@@ -111,12 +116,22 @@ class EepromConfigClass {
     return status;
   }
 
-  boolean set_mqtt_server(const char* mqtt_server){
+  boolean set_mqtt_server(const char* mqtt_server, const char* mqtt_username, const char* mqtt_password){
     if (strlen(mqtt_server) > sizeof(settings.mqtt_server)){
       SERIAL_DEBUG( "mqtt_server too long");
       return false;
     }
+    if (strlen(mqtt_username) > sizeof(settings.mqtt_username)){
+      SERIAL_DEBUG( "mqtt_user too long");
+      return false;
+    }
+    if (strlen(mqtt_password) > sizeof(settings.mqtt_password)){
+      SERIAL_DEBUG( "mqtt_pwd too long");
+      return false;
+    }        
       strcpy (settings.mqtt_server, mqtt_server);
+      strcpy (settings.mqtt_username, mqtt_username);
+      strcpy (settings.mqtt_password, mqtt_password);
       settings.mqtt_configured |= MQTTSETTING_HAS_SERVER;
     //EEPROM.put(EEPARAM_SETTINGS_START, settings);
     //EEPROM.commit();
@@ -164,7 +179,7 @@ class EepromConfigClass {
     return true;
   }
   
-  boolean store_conn_info(const char* new_ssid, const char* new_password, const char* mqtt_server){
+  boolean store_conn_info(const char* new_ssid, const char* new_password, const char* mqtt_server, const char* mqtt_user, const char* mqtt_pass){
     Serial.println( "store_conn_info");
     if (strlen(new_ssid) > sizeof(settings.ssid)){
       SERIAL_DEBUG( "ssid too long");
@@ -174,7 +189,7 @@ class EepromConfigClass {
       SERIAL_DEBUG( "pwd too long");
       return false;
     }
-    if (! set_mqtt_server(mqtt_server) ) return false;
+    if (! set_mqtt_server(mqtt_server, mqtt_user, mqtt_pass) ) return false;    
     strcpy (settings.ssid, new_ssid);
     strcpy (settings.password, new_password);
     EEPROM.put(EEPARAM_SETTINGS_START, settings);

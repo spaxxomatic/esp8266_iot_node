@@ -2,12 +2,12 @@
 
 I use this as a replacement for the sonoff default firmware. A lot of work has been put into it to make it resilient to Wlan connection drops or MQTT error/disconnects.
 
-* Uses the ESPAsyncTCP stack by https://github.com/me-no-dev/ESPAsyncTCP, a damn good, fully asynchronous TCP library by Hristo Gochkov. I was not able to stablize the sw behaviour before switching from the standard ESP TCP stact to this one
+* Uses the ESPAsyncTCP stack by https://github.com/me-no-dev/ESPAsyncTCP, a damn well implemented, fully asynchronous TCP library by Hristo Gochkov. I was not able to stablize the sw behaviour before switching from the standard ESP TCP stack to this one
 * Nicely handles lost Wlan connections by trying to reconnect a couple of times and then rebooting in AP mode and presenting a configuration GUI
-* Detects MQTT server disconnects and tries to reconnect
+* Detects MQTT server disconnects and tries to reconnect periodically
 
 * In motion detection mode, the "ON" time is configurable via MQTT (see config section below)
-* Mode indication via the on-board LED - in normal mode, LED dim-blinks each 4 seconds
+* The on-board LED is used for healthcheck - in normal mode, LED dim-blinks each 4 seconds
 
 
 ### MQTT topics
@@ -24,12 +24,17 @@ MQTT subscribtions:
 The config data is JSON-formatted, as follows:
 {"deepsleep":1} - enables the deep sleep mode of ESP
 {"location":<location_name>} - sets the location info , example {"location":"basement_door"}
-{"log_freq":<int>} - logging
+{"log_freq":<int>} - logging frequency in seconds
 {"motion_sensor_timer":<int>} - if a motion sensor is configured, the off-time of the sensor (seconds) can be configured via this parameter
 Configuration is stored in the EEPROM.
 
-Rreport request:
+Report request:
 By sending a message like {"report":1} on the config topic, the device will answer with a MQTT message on the topic /report/<MAC>, reporting the firmware version, the location and the capabilities
+The report is also sent periodically with a frequency of <log_freq>
+
+OTA:
+OTA is initiated by sending the message {"update":<ver>} on the config topic. The device will reboot immediately and during bootup will try download the firmware file <ver>.bin via http from the same ip address the MQTT server, port 9999. The update will be only attempted if the update version is newer as the installed version.
+Example: {"update":100} will result in a "GET /100.bin HTTP/1.0" request.
 
 ### Future improvements (Todo's)
 * Static TCP/IP adress configurable via MQTT - would allow faster reboots
@@ -40,7 +45,7 @@ NodeMCU schematic https://github.com/nodemcu/nodemcu-devkit-v1.0/blob/master/NOD
 Sonoff schematic https://www.itead.cc/wiki/File:Sonoff-Schematic.pdf
 
 ### Programming notes:
-* When flashing, set the SPI mode of your board. Some SONOFF modules are delivered with QIO, some with DOUT flash chips. Set the right value in the platform.ini or flashing will fail. 
+* When flashing via serial, set the SPI mode of your board. Some SONOFF modules are delivered with QIO, some with DOUT flash chips. Set the right value in the platform.ini or flashing will fail. 
 
 * Some cheap China USB-to-Serial modules (CH340) are causing random problems when flashing. Use FT232 USB-Serial converters to avoid headaches.
 
