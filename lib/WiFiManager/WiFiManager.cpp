@@ -79,7 +79,7 @@ void WiFiManager::addParameter(WiFiManagerParameter *p) {
 }
 
 void WiFiManager::setupConfigPortal() {
-  dnsServer.reset(new DNSServer());
+  //dnsServer.reset(new DNSServer());
   server.reset(new ESP8266WebServer(80));
 
   DEBUG_WM(F(""));
@@ -87,14 +87,6 @@ void WiFiManager::setupConfigPortal() {
 
   DEBUG_WM(F("Configuring access point... "));
   DEBUG_WM(_apName);
-  if (_apPassword != NULL) {
-    if (strlen(_apPassword) < 8 || strlen(_apPassword) > 63) {
-      // fail passphrase to short or long!
-      DEBUG_WM(F("Invalid AccessPoint password. Ignoring"));
-      _apPassword = NULL;
-    }
-    DEBUG_WM(_apPassword);
-  }
 
   //optional soft ip config
   if (_ap_static_ip) {
@@ -102,30 +94,24 @@ void WiFiManager::setupConfigPortal() {
     WiFi.softAPConfig(_ap_static_ip, _ap_static_gw, _ap_static_sn);
   }
 
-  if (_apPassword != NULL) {
-    WiFi.softAP(_apName, _apPassword);//password option
-  } else {
-    WiFi.softAP(_apName);
-  }
+  WiFi.softAP(_apName);
 
   delay(500); // Without delay I've seen the IP address blank
   DEBUG_WM(F("AP IP address: "));
   DEBUG_WM(WiFi.softAPIP());
 
   /* Setup the DNS server redirecting all the domains to the apIP */
-  dnsServer->setErrorReplyCode(DNSReplyCode::NoError);
-  dnsServer->start(DNS_PORT, "*", WiFi.softAPIP());
+  //dnsServer->setErrorReplyCode(DNSReplyCode::NoError);
+  //dnsServer->start(DNS_PORT, "*", WiFi.softAPIP());
 
   /* Setup web pages: root, wifi config pages, SO captive portal detectors and not found. */
   server->on("/", std::bind(&WiFiManager::handleRoot, this));
   server->on("/wifi", std::bind(&WiFiManager::handleWifi, this, true));
   server->on("/0wifi", std::bind(&WiFiManager::handleWifi, this, false));
   server->on("/wifisave", std::bind(&WiFiManager::handleWifiSave, this));
-  server->on("/i", std::bind(&WiFiManager::handleInfo, this));
+  //server->on("/i", std::bind(&WiFiManager::handleInfo, this));
   server->on("/r", std::bind(&WiFiManager::handleReset, this));
-  //server->on("/generate_204", std::bind(&WiFiManager::handle204, this));  //Android/Chrome OS captive portal check.
-  server->on("/fwlink", std::bind(&WiFiManager::handleRoot, this));  //Microso%ft captive portal. Maybe not needed. Might be handled by notFound handler.
-  server->onNotFound (std::bind(&WiFiManager::handleNotFound, this));
+
   server->begin(); // Web server start
   DEBUG_WM(F("HTTP server started"));
 
@@ -170,6 +156,7 @@ boolean WiFiManager::startConfigPortal() {
   return startConfigPortal(ssid.c_str(), NULL);
 }
 
+
 boolean  WiFiManager::startConfigPortal(char const *apName, char const *apPassword) {
   //setup AP
   WiFi.disconnect(true);
@@ -194,7 +181,7 @@ boolean  WiFiManager::startConfigPortal(char const *apName, char const *apPasswo
     if(configPortalHasTimeout()) break;
 
     //DNS
-    dnsServer->processNextRequest();
+    //TTT dnsServer->processNextRequest();
     //HTTP
     server->handleClient();
 
@@ -232,7 +219,7 @@ boolean  WiFiManager::startConfigPortal(char const *apName, char const *apPasswo
   }
 
   server.reset();
-  dnsServer.reset();
+  //TTT dnsServer.reset();
 
   return  WiFi.status() == WL_CONNECTED;
 }

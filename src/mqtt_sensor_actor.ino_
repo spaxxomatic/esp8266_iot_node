@@ -408,8 +408,7 @@ void response_loop(unsigned int with_wait){
     bSendHeartbeat = false;
     sendHeartbeat();
   }
-
-  //handle_serial_cmd();
+  
   //inputs handling
   if (tickOccured){
     tickOccured = false;
@@ -589,7 +588,6 @@ void onMqttMessage(char* topic, char* payload, AsyncMqttClientMessageProperties 
 
 void onMqttConnect(bool sessionPresent) {
   SERIAL_DEBUG("MqttConnect");
-  SERIAL_DEBUG(sessionPresent);
   f_subscribe = true;
   f_SendConfigReport = true;
 }

@@ -12,6 +12,9 @@
         "new": "cpp",
         "ostream": "cpp",
         "sstream": "cpp",
-        "streambuf": "cpp"
+        "streambuf": "cpp",
+        "*.ino_": "c",
+        "asyncmqttclient.h": "c",
+        "eeprom_settings.h": "c"
     }
 }
