@@ -15,6 +15,13 @@
         "streambuf": "cpp",
         "*.ino_": "c",
         "asyncmqttclient.h": "c",
-        "eeprom_settings.h": "c"
+        "eeprom_settings.h": "c",
+        "array": "c",
+        "deque": "c",
+        "list": "c",
+        "string": "c",
+        "unordered_map": "c",
+        "vector": "c",
+        "initializer_list": "c"
     }
 }

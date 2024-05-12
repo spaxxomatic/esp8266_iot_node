@@ -25,29 +25,8 @@ extern "C" {
 #include "user_interface.h"
 }
 
-os_timer_t myTimer;
 
-bool tickOccured;
-
-// start of timerCallback
-void timerCallback(void *pArg) {
-      tickOccured = true;
-}
-
-
-#ifdef HAS_BUTTON
-uint8_t iButtonState = 0;
-#endif
-#ifdef HAS_MOTION_SENSOR
-uint8_t cnt_motion_sensor_countdown=0xFF;
-#endif
-unsigned int batt;
-#define MODE_SENSOR_DISABLED 'D'
-#define MODE_SENSOR_ENABLED 1
-
-unsigned int sensorMode = MODE_SENSOR_ENABLED;
-int pwmdir = 0;
-double battV;
+#define BLINK_ERROR blinker.attach(0.1, flip)
 
 enum SEM_STATE {
   SEM_BUFF_FREE,
@@ -76,14 +55,15 @@ char str_mac[16] ;
 settings_t tmpSettings;
 char fw_file[32] ;
 
-void saveConfigParams() {
+void saveSettings() {
   SERIAL_DEBUG("Save config");
   SERIAL_DEBUG(tmpSettings.ssid);
   SERIAL_DEBUG(tmpSettings.password);
   SERIAL_DEBUG(tmpSettings.mqtt_server);  
-  if (!EepromConfig.store_conn_info(tmpSettings.ssid, tmpSettings.password, tmpSettings.mqtt_server, tmpSettings.mqtt_username, tmpSettings.password))
+  if (!EepromConfig.store_conn_info(tmpSettings.ssid, tmpSettings.password, tmpSettings.mqtt_server, tmpSettings.mqtt_username, tmpSettings.mqtt_password))
   {
       SERIAL_DEBUG("Eeprom save failed");
+      BLINK_ERROR;
   };
 }
 
@@ -117,7 +97,8 @@ bool extract_store_param(JsonObject& json, char* fieldname, char* target_var){
             strcpy(target_var , val);
           }else{
             SERIAL_DEBUGC("Missing field "); 
-            SERIAL_DEBUG(fieldname);                    
+            SERIAL_DEBUG(fieldname);  
+            BLINK_ERROR;                  
           }
 }          
 
@@ -157,6 +138,7 @@ bool httpRetrieveSettings(){
 #define MSG_UPD_VERSION_NOTFOUND "HTTP_UPDATE_NO_UPDATES"
 #define MSG_HTTP_UPDATE_OK "HTTP_UPDATE_OK"
 void httpUpdate(){
+  Serial.println("Enter httpUpdate");
   if (EepromConfig.get_http_update_flag() == EEPROOM_HTTP_UPDATE_STARTED){  // a previous run has been ran and a reboot occured 
     EepromConfig.set_http_update_flag(EEPROOM_HTTP_UPDATE_SUCCESS);
     return;
@@ -166,8 +148,10 @@ void httpUpdate(){
     EepromConfig.set_http_update_flag(EEPROOM_HTTP_UPDATE_STARTED);
     ESPhttpUpdate.rebootOnUpdate(false);
     ESP.wdtDisable();
-    SERIAL_DEBUGC("Start httpUpdate - fw ");
-    SERIAL_DEBUG(fw_file);
+    //TODO: persist fw_file between boots
+    strcpy(fw_file, "/fw.bin");
+    Serial1.print("Start httpUpdate - fw ");
+    Serial1.println(fw_file);
             
     t_httpUpdate_return ret = ESPhttpUpdate.update(WiFi.gatewayIP().toString(), CONFIG_SERVER_PORT, fw_file, "INIT"); 
     //t_httpUpdate_return ret = ESPhttpUpdate.update(tempSendPayloadBuffer, FW_VERSION); 
@@ -175,11 +159,13 @@ void httpUpdate(){
       case HTTP_UPDATE_FAILED:
         Serial.printf("HTTP_UPDATE_FAIL Error (%d): %s", ESPhttpUpdate.getLastError(), ESPhttpUpdate.getLastErrorString().c_str());
         EepromConfig.set_http_update_flag(EEPROOM_HTTP_UPDATE_FAILED);
+        BLINK_ERROR;
         break;
       case HTTP_UPDATE_NO_UPDATES:
         Serial.println("HTTP_UPDATE_NO_UPDATES");
         EepromConfig.set_http_update_flag(EEPROOM_HTTP_NO_UPDATE_FOUND);      
         EepromConfig.store_lasterr(MSG_UPD_VERSION_NOTFOUND);
+        BLINK_ERROR;
         break;
       case HTTP_UPDATE_OK:
         Serial.println(MSG_HTTP_UPDATE_OK); //afaik we'll never get here, the update reboots after finishing
@@ -188,7 +174,9 @@ void httpUpdate(){
         ESP.restart();
         break;
       default:
+        Serial.println("Generic failure");
         EepromConfig.set_http_update_flag(EEPROOM_HTTP_UPDATE_FAILED);
+        BLINK_ERROR;
     }
   }
 }
@@ -241,7 +229,7 @@ void setup(void) {
   Serial.println("Boot..");
   pinMode(LED_BUILTIN, OUTPUT);
   // flip the pin every 0.3s
-  blinker.attach(0.3, flip);
+  blinker.attach(0.5, flip);
   //httpUpdate();
   
   byte mac[6];
@@ -252,27 +240,27 @@ void setup(void) {
   SERIAL_DEBUG(ESP.getFreeSketchSpace());
   SERIAL_DEBUGC("Flash size") ;
   SERIAL_DEBUG(ESP.getFlashChipRealSize()) ;
-  
-  //set up timer
-  os_timer_setfn(&myTimer, timerCallback, NULL);
-  os_timer_arm(&myTimer, OS_MAIN_TIMER_MS, true);
-  
-  EepromConfig.begin();
-  int i = 0;
-
+    
   connect_config_wifi();
 
+  httpUpdate();
   blinker.detach();
   //if we reached this place, we're connected
   Serial.print("Connected. IP: ");
   Serial.println(WiFi.localIP());
 
-  //connect to MQTT Server and load the production config
+  EepromConfig.begin();
+
+  //load the production config via HTTP 
   ESP.wdtEnable(5000);
   
   if (httpRetrieveSettings()){
     //load the production firmware
-    httpUpdate();
+    saveSettings();
+    Serial.print("Settings saved, update FW ");
+    EepromConfig.set_http_update_flag(EEPROOM_HTTP_UPDATE_DO_ON_REBOOT);
+    ESP.restart();
+
   };
   
   //WiFi.hostByName(EepromConfig.settings.mqtt_server, mqttServerIp) ;

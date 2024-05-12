@@ -1,9 +1,9 @@
 
     // AUTO GENERATED FILE, DO NOT EDIT
     #ifndef FW_VERSION
-        #define FW_VERSION 104
+        #define FW_VERSION 116
     #endif
     #ifndef BUILD_TIMESTAMP
-        #define BUILD_TIMESTAMP "2024-05-12 23:55:18.592513"
+        #define BUILD_TIMESTAMP "2024-05-13 01:23:39.267367"
     #endif
     
