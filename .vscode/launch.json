@@ -12,9 +12,9 @@
             "type": "platformio-debug",
             "request": "launch",
             "name": "PIO Debug",
-            "executable": "c:/avr/platformio_projects/mqtt_sensor_actor/.pio/build/build/firmware.elf",
+            "executable": "/home/lun/esp8266_iot_node/.pio/build/build/firmware.elf",
             "projectEnvName": "build",
-            "toolchainBinDir": "C:/Users/luci/.platformio/packages/toolchain-xtensa@1.40802.0/bin",
+            "toolchainBinDir": "/home/lun/.platformio/packages/toolchain-xtensa/bin",
             "internalConsoleOptions": "openOnSessionStart",
             "preLaunchTask": {
                 "type": "PlatformIO",
@@ -25,18 +25,18 @@
             "type": "platformio-debug",
             "request": "launch",
             "name": "PIO Debug (skip Pre-Debug)",
-            "executable": "c:/avr/platformio_projects/mqtt_sensor_actor/.pio/build/build/firmware.elf",
+            "executable": "/home/lun/esp8266_iot_node/.pio/build/build/firmware.elf",
             "projectEnvName": "build",
-            "toolchainBinDir": "C:/Users/luci/.platformio/packages/toolchain-xtensa@1.40802.0/bin",
+            "toolchainBinDir": "/home/lun/.platformio/packages/toolchain-xtensa/bin",
             "internalConsoleOptions": "openOnSessionStart"
         },
         {
             "type": "platformio-debug",
             "request": "launch",
             "name": "PIO Debug (without uploading)",
-            "executable": "c:/avr/platformio_projects/mqtt_sensor_actor/.pio/build/build/firmware.elf",
+            "executable": "/home/lun/esp8266_iot_node/.pio/build/build/firmware.elf",
             "projectEnvName": "build",
-            "toolchainBinDir": "C:/Users/luci/.platformio/packages/toolchain-xtensa@1.40802.0/bin",
+            "toolchainBinDir": "/home/lun/.platformio/packages/toolchain-xtensa/bin",
             "internalConsoleOptions": "openOnSessionStart",
             "loadMode": "manual"
         }

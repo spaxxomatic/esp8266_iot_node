@@ -16,7 +16,7 @@
 #include "version.h"
 #include "eeprom_settings.h"
 #include <AsyncMqttClient.h>
-#include <esp8266httpupdate.h>
+#include <ESP8266httpUpdate.h>
 
 #include <Ticker.h>
 Ticker blinker;

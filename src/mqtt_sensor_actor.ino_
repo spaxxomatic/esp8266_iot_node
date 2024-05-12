@@ -18,7 +18,7 @@
 #include "eeprom_settings.h"
 #include <AsyncMqttClient.h>
 #include <WiFiManager.h>
-#include <esp8266httpupdate.h>
+#include <ESP8266httpUpdate.h>
 
 #ifdef HAS_DHT_SENSOR
 #include "DHT.h"
