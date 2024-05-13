@@ -166,7 +166,7 @@ class EepromConfigClass {
   }
 
   inline void set_http_update_flag(uint8_t update_flag){    
-    EEPROM.put(FLOC_EEPARAM_UPDATE_ON_RESTART, update_flag);
+    EEPROM.write(FLOC_EEPARAM_UPDATE_ON_RESTART, update_flag);
     EEPROM.commit();    
   }
 
@@ -198,7 +198,6 @@ class EepromConfigClass {
     EEPROM.commit();
     validateSettings();
     Serial.println( "Eeprom params saved");
-    EEPROM.end();
     return true;
   }
 

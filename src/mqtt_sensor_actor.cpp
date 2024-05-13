@@ -330,11 +330,11 @@ void setup(void) {
   sprintf(sensor_topic, "/sensor/%s", str_mac);
   sprintf(report_topic, "/report/%s", str_mac);
   Serial.println(str_mac);
-  SERIAL_DEBUGC("Free space") ;
-  SERIAL_DEBUG(ESP.getFreeSketchSpace());
+
   SERIAL_DEBUGC("Flash size") ;
-  SERIAL_DEBUG(ESP.getFlashChipRealSize()) ;
-  
+  SERIAL_DEBUGC(ESP.getFlashChipRealSize()) ;
+  SERIAL_DEBUGC(" Free: ") ;
+  SERIAL_DEBUG(ESP.getFreeSketchSpace());
   //set up timer
   os_timer_setfn(&myTimer, timerCallback, NULL);
   os_timer_arm(&myTimer, OS_MAIN_TIMER_MS, true);

@@ -29,7 +29,9 @@ void flip() {
   digitalWrite(LED_BUILTIN, !state);     
 }
 
-#define BLINK_ERROR blinker.attach(0.1, flip)
+bool error_signaling_active = false;
+
+#define BLINK_ERROR if (!error_signaling_active) {blinker.detach(); blinker.attach(0.1, flip); error_signaling_active=true;}
 
 #define MAX_JSON_MSG_LEN 255
 StaticJsonBuffer<MAX_JSON_MSG_LEN> jsonBuffer;
@@ -102,7 +104,7 @@ bool httpRetrieveSettings(){
         }else{    
           bool ret = extract_store_param(jsonRoot, "ssid", tmpSettings.ssid) && 
           extract_store_param(jsonRoot, "pwd", tmpSettings.password) &&
-          extract_store_param(jsonRoot, "mqtt_server", tmpSettings.password) &&
+          extract_store_param(jsonRoot, "mqtt_server", tmpSettings.mqtt_server) &&
           extract_store_param(jsonRoot, "mqtt_user", tmpSettings.mqtt_username) &&
           extract_store_param(jsonRoot, "mqtt_pwd", tmpSettings.mqtt_password) &&
           extract_store_param(jsonRoot, "fw_file", fw_file) ;
@@ -227,7 +229,7 @@ void setup(void) {
 
   };  
 }
-
 void loop(void) {
+  if (!error_signaling_active)
   BLINK_ERROR;
 }
