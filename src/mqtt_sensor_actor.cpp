@@ -6,6 +6,7 @@
 // #define DEBUG_ESP_PORT Serial
 
 #include "debug.h"
+#include <Arduino.h>
 
 #include <DNSServer.h>
 #include <ESP8266WiFi.h>
@@ -220,6 +221,12 @@ void set_actor(){
     //digitalWrite(SONOFF_LED, !EepromConfig.settings.actor_state );
     sendActorState = true;
 }
+
+void actor_off(){
+    EepromConfig.settings.actor_state = 0;
+    set_actor();
+}
+
 void actor_on(bool permanent_on_disable_timer){
     EepromConfig.settings.actor_state = 1;
     set_actor();
@@ -227,11 +234,6 @@ void actor_on(bool permanent_on_disable_timer){
     if (! permanent_on_disable_timer)
       timer_light_on.once(float(EepromConfig.settings.motion_sensor_off_timer), actor_off);
     #endif  
-}
-
-void actor_off(){
-    EepromConfig.settings.actor_state = 0;
-    set_actor();
 }
 
 void actor_toggle(){
@@ -250,6 +252,62 @@ void motion_sensor_irq() {
     }
 }
 #endif
+
+void handleActorMsg(char* payload, int length);
+void handleSubscribe();
+bool handleConfigMsg();
+
+void onMqttMessage(char* topic, char* payload, AsyncMqttClientMessageProperties properties, size_t len, size_t index, size_t total) {
+  SERIAL_DEBUGC("*RX pub: ");
+  SERIAL_DEBUG(topic);
+  
+  if (len>0){
+    if (strcmp(topic, config_topic) == 0){      
+
+      if (len >= MAX_JSON_MSG_LEN){
+        SERIAL_DEBUG(" !payld > cap");
+        return ;
+      }
+
+      if (sem_lock_tempReceivePayloadBuffer != SEM_BUFF_FREE){
+        SERIAL_DEBUG(" !BuffLocked");  
+        return;
+      }
+      sem_lock_tempReceivePayloadBuffer = SEM_BUFF_WRITING;
+      memcpy(tempReceivePayloadBuffer, payload, len) ;
+      tempReceivePayloadBuffer[len] = '\0';
+      sem_lock_tempReceivePayloadBuffer = SEM_BUFF_AWAITPROCESS;
+      //SERIAL_DEBUG(payload);
+    }else if (strcmp(topic, actor_topic) == 0){
+      handleActorMsg(payload, len);      
+    }
+  }
+}
+
+
+void onMqttConnect(bool sessionPresent) {
+  SERIAL_DEBUG("MqttConnect");
+  f_subscribe = true;
+  f_SendConfigReport = true;
+}
+
+void onMqttDisconnect(AsyncMqttClientDisconnectReason reason) {
+  Serial.print("Lost broker conn :");
+  Serial.println((int) reason);  
+}
+
+void onMqttSubscribe(uint16_t packetId, uint8_t qos) {
+  SERIAL_DEBUG("Sub ACK");
+}
+
+void onMqttUnsubscribe(uint16_t packetId) {
+  SERIAL_DEBUG("Unsub ACK");
+}
+
+void onMqttPublish(uint16_t packetId) {
+  SERIAL_DEBUG("Pub ACK");
+}
+
 
 void setup(void) {
   Serial.begin(115200);
@@ -378,11 +436,6 @@ void sendHeartbeat(){
      SERIAL_DEBUGC("\n MQTT err send.") ;
   };  
   SERIAL_DEBUG("Sent HB") ;  
-}
-
-void loop(void) {
-  yield();
-  response_loop(50);
 }
 
 void mqtt_check_conn(){ //retry reconnect should be called every 2 seconds 
@@ -558,53 +611,8 @@ void handleActorMsg(char* payload, int length){
 
 }
 
-void onMqttMessage(char* topic, char* payload, AsyncMqttClientMessageProperties properties, size_t len, size_t index, size_t total) {
-  SERIAL_DEBUGC("*RX pub: ");
-  SERIAL_DEBUG(topic);
-  
-  if (len>0){
-    if (strcmp(topic, config_topic) == 0){      
 
-      if (len >= MAX_JSON_MSG_LEN){
-        SERIAL_DEBUG(" !payld > cap");
-        return ;
-      }
-
-      if (sem_lock_tempReceivePayloadBuffer != SEM_BUFF_FREE){
-        SERIAL_DEBUG(" !BuffLocked");  
-        return;
-      }
-      sem_lock_tempReceivePayloadBuffer = SEM_BUFF_WRITING;
-      memcpy(tempReceivePayloadBuffer, payload, len) ;
-      tempReceivePayloadBuffer[len] = '\0';
-      sem_lock_tempReceivePayloadBuffer = SEM_BUFF_AWAITPROCESS;
-      //SERIAL_DEBUG(payload);
-    }else if (strcmp(topic, actor_topic) == 0){
-      handleActorMsg(payload, len);      
-    }
-  }
-}
-
-
-void onMqttConnect(bool sessionPresent) {
-  SERIAL_DEBUG("MqttConnect");
-  f_subscribe = true;
-  f_SendConfigReport = true;
-}
-
-void onMqttDisconnect(AsyncMqttClientDisconnectReason reason) {
-  Serial.print("Lost broker conn :");
-  Serial.println((int) reason);  
-}
-
-void onMqttSubscribe(uint16_t packetId, uint8_t qos) {
-  SERIAL_DEBUG("Sub ACK");
-}
-
-void onMqttUnsubscribe(uint16_t packetId) {
-  SERIAL_DEBUG("Unsub ACK");
-}
-
-void onMqttPublish(uint16_t packetId) {
-  SERIAL_DEBUG("Pub ACK");
+void loop(void) {
+  yield();
+  response_loop(50);
 }
