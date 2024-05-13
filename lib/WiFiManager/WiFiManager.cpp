@@ -80,23 +80,30 @@ void WiFiManager::addParameter(WiFiManagerParameter *p) {
 
 void WiFiManager::setupConfigPortal() {
   //dnsServer.reset(new DNSServer());
+  WiFi.disconnect();
+  WiFi.mode(WIFI_AP);
+  delay(400); 
+  
   server.reset(new ESP8266WebServer(80));
 
   DEBUG_WM(F(""));
   _configPortalStart = millis();
 
   DEBUG_WM(F("Configuring access point... "));
+  
   DEBUG_WM(_apName);
+  
 
   //optional soft ip config
   if (_ap_static_ip) {
     DEBUG_WM(F("Custom AP IP/GW/Subnet"));
     WiFi.softAPConfig(_ap_static_ip, _ap_static_gw, _ap_static_sn);
   }
-
-  WiFi.softAP(_apName);
-
-  delay(500); // Without delay I've seen the IP address blank
+  bool bret = WiFi.softAP(_apName);
+  if (!bret){
+  DEBUG_WM("Soft AP failed");  
+  }
+  delay(800); // Without delay I've seen the IP address blank
   DEBUG_WM(F("AP IP address: "));
   DEBUG_WM(WiFi.softAPIP());
 
@@ -161,8 +168,9 @@ boolean  WiFiManager::startConfigPortal(char const *apName, char const *apPasswo
   //setup AP
   WiFi.disconnect(true);
   WiFi.begin();
-  WiFi.mode(WIFI_AP_STA);
-  DEBUG_WM("SET AP STA");
+  //WiFi.mode(WIFI_AP_STA);
+  WiFi.mode(WIFI_AP);  
+  DEBUG_WM("SET AP ");
 
   _apName = apName;
   _apPassword = apPassword;
@@ -181,7 +189,7 @@ boolean  WiFiManager::startConfigPortal(char const *apName, char const *apPasswo
     if(configPortalHasTimeout()) break;
 
     //DNS
-    //TTT dnsServer->processNextRequest();
+    //dnsServer->processNextRequest();
     //HTTP
     server->handleClient();
 
@@ -219,7 +227,7 @@ boolean  WiFiManager::startConfigPortal(char const *apName, char const *apPasswo
   }
 
   server.reset();
-  //TTT dnsServer.reset();
+  //dnsServer.reset();
 
   return  WiFi.status() == WL_CONNECTED;
 }

@@ -88,47 +88,53 @@ bool extract_store_param(JsonObject& json, char* fieldname, char* target_var){
 
 bool httpRetrieveSettings(){
   HTTPClient http;
-  
-  http.begin(WiFi.gatewayIP().toString(), CONFIG_SERVER_PORT, "/config.json");
-  // Your Domain name with URL path or IP address with path  
-  int httpResponseCode = http.GET();
-      
-  if (httpResponseCode>0) {
-        Serial.print("HTTP Response code: ");
-        Serial.println(httpResponseCode);
-        String payload = http.getString();
-        JsonObject& jsonRoot = jsonBuffer.parseObject(payload); 
-        if (!jsonRoot.success()) {
-          SERIAL_DEBUG("Json parse fail");        
-          return false;
-        }else{    
-          bool ret = extract_store_param(jsonRoot, "ssid", tmpSettings.ssid) && 
-          extract_store_param(jsonRoot, "pwd", tmpSettings.password) &&
-          extract_store_param(jsonRoot, "mqtt_server", tmpSettings.mqtt_server) &&
-          extract_store_param(jsonRoot, "mqtt_user", tmpSettings.mqtt_username) &&
-          extract_store_param(jsonRoot, "mqtt_pwd", tmpSettings.mqtt_password) &&
-          extract_store_param(jsonRoot, "fw_file", fw_file) ;
-          return ret;
-        }
-        return true;
-  }else {
-        Serial.print("Error code: ");
-        Serial.println(httpResponseCode);
-        return false;
-  }  
+  uint8_t retry_cnt = 0;
+  bool bret = false;    
+  while ( retry_cnt < 5){
+    retry_cnt++;
+    Serial.print("retrieve cfg from ");
+    Serial.println( WiFi.gatewayIP().toString());
+    http.begin(WiFi.gatewayIP().toString(), CONFIG_SERVER_PORT, "/config.json");
+    // Your Domain name with URL path or IP address with path  
+    int httpResponseCode = http.GET();
+    
+    if (httpResponseCode>0) {
+          Serial.print("HTTP Response code: ");
+          Serial.println(httpResponseCode);
+          String payload = http.getString();
+          JsonObject& jsonRoot = jsonBuffer.parseObject(payload); 
+          if (!jsonRoot.success()) {
+            SERIAL_DEBUG("Json parse fail");    
+          }else{    
+            bool ret = extract_store_param(jsonRoot, "ssid", tmpSettings.ssid) && 
+            extract_store_param(jsonRoot, "pwd", tmpSettings.password) &&
+            extract_store_param(jsonRoot, "mqtt_server", tmpSettings.mqtt_server) &&
+            extract_store_param(jsonRoot, "mqtt_user", tmpSettings.mqtt_username) &&
+            extract_store_param(jsonRoot, "mqtt_pwd", tmpSettings.mqtt_password) &&
+            extract_store_param(jsonRoot, "fw_file", fw_file) ;
+          }
+          bret = true;
+    }else {
+          Serial.print("HTTP retrieve json: Error code: ");
+          Serial.println(httpResponseCode);
+    }  
+    http.end();
+    if (bret) break;
+  }
+  return bret;
 }
 
 #define MSG_UPD_VERSION_NOTFOUND "HTTP_UPDATE_NO_UPDATES"
 #define MSG_HTTP_UPDATE_OK "HTTP_UPDATE_OK"
 
-void httpUpdate(){
+void httpUpdate(bool force){
   Serial.println("Enter httpUpdate");
   BLINK_BUSY;
   if (EepromConfig.get_http_update_flag() == EEPROOM_HTTP_UPDATE_STARTED){  // a previous run has been ran and a reboot occured 
     EepromConfig.set_http_update_flag(EEPROOM_HTTP_UPDATE_SUCCESS);
     return;
   }    
-  if (EepromConfig.get_http_update_flag() == EEPROOM_HTTP_UPDATE_DO_ON_REBOOT){      
+  if (force || EepromConfig.get_http_update_flag() == EEPROOM_HTTP_UPDATE_DO_ON_REBOOT){      
     ESP8266HTTPUpdate ESPhttpUpdate;                
     EepromConfig.set_http_update_flag(EEPROOM_HTTP_UPDATE_STARTED);
     ESPhttpUpdate.rebootOnUpdate(false);
@@ -209,7 +215,7 @@ void setup(void) {
     
   connect_config_wifi();
 
-  httpUpdate();
+  httpUpdate(false);
 
   //if we reached this place, we're connected
   Serial.print("Connected. IP: ");
@@ -219,13 +225,16 @@ void setup(void) {
 
   //load the production config via HTTP 
   ESP.wdtEnable(5000);
-  
-  if (httpRetrieveSettings()){
+  bool bret = httpRetrieveSettings();
+
+  if (bret){
     //load the production firmware
     saveSettings();
     Serial.print("Settings saved, update FW ");
-    EepromConfig.set_http_update_flag(EEPROOM_HTTP_UPDATE_DO_ON_REBOOT);
-    ESP.restart();
+    httpUpdate(true);
+    //EepromConfig.set_http_update_flag(EEPROOM_HTTP_UPDATE_DO_ON_REBOOT);
+    //EEPROM.end();
+    //ESP.restart();
 
   };  
 }

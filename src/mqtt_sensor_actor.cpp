@@ -39,6 +39,12 @@ extern "C" {
 #include "user_interface.h"
 }
 
+uint8_t cnt_connectionerror = 0; //counts various errors during operations. If the counter exceeds a certain value, the config portal will be started
+
+#define INCR_CONN_ERROR cnt_connectionerror++
+
+#define RST_CONN_ERROR cnt_connectionerror = 0
+
 os_timer_t myTimer;
 os_timer_t mqttReconnectTimer;
 bool tickOccured;
@@ -132,6 +138,7 @@ void timer_mqttConnCheck_handler(){
 if (!mqttClient.connected()){
   //we do not call here reconnect, since we're in a timer routine and it must exit before any yield is called
   f_reconnect = true; //trigger reconnection in main thread
+  INCR_CONN_ERROR;  
 }
 }
 
@@ -147,8 +154,8 @@ void enterWifiManager(){
   if (!wifiManager.startConfigPortal("ESP_WAITING_CFG", "pass")) {
     Serial.println("Failed to connect and hit timeout");
     delay(3000);
-    ESP.reset();
-    delay(1000);
+    ESP.restart();
+    delay(500);
   }
 }
 
@@ -260,7 +267,7 @@ bool handleConfigMsg();
 void onMqttMessage(char* topic, char* payload, AsyncMqttClientMessageProperties properties, size_t len, size_t index, size_t total) {
   SERIAL_DEBUGC("*RX pub: ");
   SERIAL_DEBUG(topic);
-  
+  RST_CONN_ERROR;
   if (len>0){
     if (strcmp(topic, config_topic) == 0){      
 
@@ -293,19 +300,25 @@ void onMqttConnect(bool sessionPresent) {
 
 void onMqttDisconnect(AsyncMqttClientDisconnectReason reason) {
   Serial.print("Lost broker conn :");
-  Serial.println((int) reason);  
+  INCR_CONN_ERROR;
+  Serial.print((int) reason);
+  Serial.print(" CNT ");
+  Serial.println((int) cnt_connectionerror);  
 }
 
 void onMqttSubscribe(uint16_t packetId, uint8_t qos) {
   SERIAL_DEBUG("Sub ACK");
+  RST_CONN_ERROR;
 }
 
 void onMqttUnsubscribe(uint16_t packetId) {
   SERIAL_DEBUG("Unsub ACK");
+  RST_CONN_ERROR;
 }
 
 void onMqttPublish(uint16_t packetId) {
   SERIAL_DEBUG("Pub ACK");
+  RST_CONN_ERROR;
 }
 
 
@@ -348,9 +361,10 @@ void setup(void) {
       Serial.println(EepromConfig.settings.ssid);
       Serial.println(EepromConfig.settings.password);
       WiFi.begin(EepromConfig.settings.ssid, EepromConfig.settings.password);
-      delay(400);
+      delay(200);
       i++;
-      if (i > 10) {
+      INCR_CONN_ERROR;
+      if (i > 4) {
               Serial.println("Start WiFiManager ..");
               enterWifiManager();
             };
@@ -359,13 +373,14 @@ void setup(void) {
     //no valid  eprom config, try to connect with default values
     //EepromConfig.getDefaultConfig();
     //go in config mode
+    Serial.print("Invalid settings, enter WM");
     enterWifiManager();
   }
   //if we reached this place, we're connected
   Serial.print("Connected. IP: ");
   Serial.println(WiFi.localIP());
 
-  httpUpdate();
+  // httpUpdate();
       
   ESP.wdtEnable(5000);
   pinMode(ACTOR_PIN, OUTPUT);
@@ -377,14 +392,12 @@ void setup(void) {
   dht.begin();
   #endif  
   
-  //Serial.print("Connect MQTT srv ");
-  WiFi.hostByName(EepromConfig.settings.mqtt_server, mqttServerIp) ;
-  if (mqttServerIp == IPAddress(0,0,0,0)){ //host name or ip adress is wrong, enter config
-    Serial.println("Mqtt server config error, enter config");
-    enterWifiManager();
-  }
+  Serial.print("Connect MQTT srv ");
+  Serial.print(EepromConfig.settings.mqtt_server);
+  Serial.print(EepromConfig.settings.mqtt_username);
+  Serial.print(EepromConfig.settings.mqtt_password);
   
-  Serial.println(mqttServerIp);
+  WiFi.hostByName(EepromConfig.settings.mqtt_server, mqttServerIp) ;
   
   mqttClient.setServer(mqttServerIp, 1883);  
   mqttClient.setCredentials(EepromConfig.settings.mqtt_username, EepromConfig.settings.mqtt_password);
@@ -398,7 +411,7 @@ void setup(void) {
   blinker.detach();
   analogWriteFreq(100); // Hz freq
   timer_heartbeat.attach(EepromConfig.settings.log_freq, timer_heartbeat_handler);
-  timer_mqttConnCheck.attach(2, timer_mqttConnCheck_handler);
+  timer_mqttConnCheck.attach(5, timer_mqttConnCheck_handler);
 }
 
 #ifdef HAS_DHT_SENSOR
@@ -438,12 +451,11 @@ void sendHeartbeat(){
   SERIAL_DEBUG("Sent HB") ;  
 }
 
-void mqtt_check_conn(){ //retry reconnect should be called every 2 seconds 
+void mqtt_check_conn(){ //retry reconnect should be called periodically by the chk_connect timer 
     SERIAL_DEBUG("MQTT CKCON") ;   
     if (!mqttClient.connected()){        
         SERIAL_DEBUG("MQTT reconnect ..") ;      
         mqttClient.connect();
-        SERIAL_DEBUG("MQTT reconnect ok") ;      
     }
 }
 
@@ -477,6 +489,11 @@ void response_loop(unsigned int with_wait){
        //only the first press after a depress shall trigger a state change
        actor_toggle();
      }
+     if (iButtonState >= 20){ // around 20*0.2 seconds 
+       //4 presses - enter wifi manager
+       Serial.println("BP->Enter WM");
+       enterWifiManager();
+     }     
     #endif
   }
   pwmval+=pwmdir;
@@ -488,6 +505,15 @@ void response_loop(unsigned int with_wait){
     delay(with_wait);
   }
   if (f_reconnect){
+    if (cnt_connectionerror > 25 ){ //lots of connection errors, enter config
+      Serial.println("Too many mqtt connection errors, reboot into WM");
+      // enterWifiManager(); # it is not possible to directly call it, we run into a stack overflow because RAM is insufficient
+      //we invalidate config and trigger a restart
+      EepromConfig.invalidateSettings();
+      delay(4000);
+      ESP.restart();
+      delay(1000);
+    }    
     f_reconnect = false;
     mqtt_check_conn();
   }
