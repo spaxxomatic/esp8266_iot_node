@@ -46,7 +46,7 @@ uint8_t cnt_connectionerror = 0; //counts various errors during operations. If t
 #define RST_CONN_ERROR cnt_connectionerror = 0
 
 os_timer_t myTimer;
-os_timer_t mqttReconnectTimer;
+
 bool tickOccured;
 bool f_SendConfigReport;
 // start of timerCallback
@@ -99,6 +99,14 @@ char tempTopicBuffer[128];
 ADC_MODE(ADC_VCC);
 WiFiManager wifiManager;
 char str_mac[16] ;
+
+/*Wifi reconnection handling*/
+Ticker wifiReconnectTimer;
+WiFiEventHandler wifiConnectHandler;
+WiFiEventHandler wifiDisconnectHandler;
+
+void onWifiConnect(const WiFiEventStationModeGotIP& event);
+void onWifiDisconnect(const WiFiEventStationModeDisconnected& event);
 
 void saveConfigParams() {
   SERIAL_DEBUG(" cb: save config");
@@ -296,6 +304,12 @@ void onMqttConnect(bool sessionPresent) {
   SERIAL_DEBUG("MqttConnect");
   f_subscribe = true;
   f_SendConfigReport = true;
+ 
+}
+
+void writeOnlineState(){
+    //delete eventual last wills that might have been written by disconnects 
+  mqttClient.publish(sensor_topic, 1, true, "ONLINE");
 }
 
 void onMqttDisconnect(AsyncMqttClientDisconnectReason reason) {
@@ -321,6 +335,7 @@ void onMqttPublish(uint16_t packetId) {
   RST_CONN_ERROR;
 }
 
+void connectToWifi();
 
 void setup(void) {
   Serial.begin(115200);
@@ -355,15 +370,37 @@ void setup(void) {
   EepromConfig.begin();
   int i = 0;
   
+  wifiConnectHandler = WiFi.onStationModeGotIP(onWifiConnect);
+  wifiDisconnectHandler = WiFi.onStationModeDisconnected(onWifiDisconnect);
+  WiFi.setSleepMode(WIFI_NONE_SLEEP);
+  
+  
   if (EepromConfig.readEepromParams()){ //if we have saved params, try to connect the wlan
+ 
+  Serial.print("MQTT srv parms");
+  Serial.print(EepromConfig.settings.mqtt_server);
+  Serial.print(EepromConfig.settings.mqtt_username);
+  Serial.print(EepromConfig.settings.mqtt_password);
+  
+  WiFi.hostByName(EepromConfig.settings.mqtt_server, mqttServerIp) ;
+  
+  mqttClient.setServer(mqttServerIp, 1883);  
+  mqttClient.setCredentials(EepromConfig.settings.mqtt_username, EepromConfig.settings.mqtt_password);
+  mqttClient.onConnect(onMqttConnect);
+  mqttClient.onDisconnect(onMqttDisconnect);
+  mqttClient.onSubscribe(onMqttSubscribe);
+  mqttClient.onMessage(onMqttMessage);
+  mqttClient.setKeepAlive(10).setCleanSession(true).setClientId(str_mac)
+    .setWill(sensor_topic, 0, true, "OFFLINE");;
+ 
+ 
     while (WiFi.waitForConnectResult() != WL_CONNECTED) {
       Serial.println("WiFi login:");
       Serial.println(EepromConfig.settings.ssid);
       Serial.println(EepromConfig.settings.password);
-      WiFi.begin(EepromConfig.settings.ssid, EepromConfig.settings.password);
+      connectToWifi();
       delay(200);
       i++;
-      INCR_CONN_ERROR;
       if (i > 4) {
               Serial.println("Start WiFiManager ..");
               enterWifiManager();
@@ -379,7 +416,8 @@ void setup(void) {
   //if we reached this place, we're connected
   Serial.print("Connected. IP: ");
   Serial.println(WiFi.localIP());
-
+  WiFi.setAutoReconnect(true);
+  WiFi.persistent(true);
   // httpUpdate();
       
   ESP.wdtEnable(5000);
@@ -392,26 +430,47 @@ void setup(void) {
   dht.begin();
   #endif  
   
-  Serial.print("Connect MQTT srv ");
-  Serial.print(EepromConfig.settings.mqtt_server);
-  Serial.print(EepromConfig.settings.mqtt_username);
-  Serial.print(EepromConfig.settings.mqtt_password);
-  
-  WiFi.hostByName(EepromConfig.settings.mqtt_server, mqttServerIp) ;
-  
-  mqttClient.setServer(mqttServerIp, 1883);  
-  mqttClient.setCredentials(EepromConfig.settings.mqtt_username, EepromConfig.settings.mqtt_password);
-  mqttClient.onConnect(onMqttConnect);
-  mqttClient.onDisconnect(onMqttDisconnect);
-  mqttClient.onSubscribe(onMqttSubscribe);
-  mqttClient.onMessage(onMqttMessage);
-  mqttClient.setKeepAlive(10).setCleanSession(true).setClientId(str_mac);
-  mqttClient.connect();
+  //mqttClient.connect();
   //enable PWM on led pin
   blinker.detach();
   analogWriteFreq(100); // Hz freq
   timer_heartbeat.attach(EepromConfig.settings.log_freq, timer_heartbeat_handler);
+ }
+
+void connectToWifi()
+{
+
+  Serial.println("Connecting to Wi-Fi...");
+
+  WiFi.mode(WIFI_STA);
+  WiFi.begin(EepromConfig.settings.ssid, EepromConfig.settings.password);
+}
+
+void onWifiConnect(const WiFiEventStationModeGotIP& event)
+{
+  #ifdef DEBUG
+    Serial.println("Connected to Wi-Fi.");
+    Serial.println(WiFi.localIP());
+  #endif
+  #ifdef DEBUG
+    Serial.println("Connecting to MQTT...");
+  #endif
+  wifiReconnectTimer.detach();
+  //delay(1000);
+  //mqttClient.connect();
+  //delay(100);
   timer_mqttConnCheck.attach(5, timer_mqttConnCheck_handler);
+
+}
+
+// ----------------------------------------------------------------------
+
+void onWifiDisconnect(const WiFiEventStationModeDisconnected& event)
+{
+  Serial.println("Disconnected from Wi-Fi.");
+
+  timer_mqttConnCheck.detach(); // ensure we don't reconnect to MQTT while reconnecting to Wi-Fi
+  wifiReconnectTimer.attach(5, connectToWifi);
 }
 
 #ifdef HAS_DHT_SENSOR
@@ -440,8 +499,9 @@ void go_deepsleep(unsigned int seconds){
 #endif
 }
 #endif
-
+void mqtt_check_conn();
 void sendHeartbeat(){
+  mqtt_check_conn();
   batt_voltage = ESP.getVcc()/(float)1000;
   snprintf(tempTopicBuffer, sizeof(tempTopicBuffer), "%s/data", sensor_topic);
   sprintf(tempSendPayloadBuffer,jsonFormatBattOnly, dtostrf(batt_voltage, 6, 2, bvbuff));
@@ -504,16 +564,7 @@ void response_loop(unsigned int with_wait){
   if (with_wait>0){
     delay(with_wait);
   }
-  if (f_reconnect){
-    if (cnt_connectionerror > 25 ){ //lots of connection errors, enter config
-      Serial.println("Too many mqtt connection errors, reboot into WM");
-      // enterWifiManager(); # it is not possible to directly call it, we run into a stack overflow because RAM is insufficient
-      //we invalidate config and trigger a restart
-      EepromConfig.invalidateSettings();
-      delay(4000);
-      ESP.restart();
-      delay(1000);
-    }    
+  if (f_reconnect){ 
     f_reconnect = false;
     mqtt_check_conn();
   }
@@ -541,6 +592,7 @@ void response_loop(unsigned int with_wait){
 }
 
 void handleSubscribe(){  
+  writeOnlineState();
   mqttClient.subscribe(actor_topic, 2);  
   mqttClient.subscribe(config_topic, 2);
 }

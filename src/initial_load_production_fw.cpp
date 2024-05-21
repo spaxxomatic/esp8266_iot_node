@@ -175,16 +175,21 @@ void httpUpdate(bool force){
 #define WIFICONFIG_SSID "espserveconfig"
 #define WIFICONFIG_PASS "esppassword"
 
-void connect_config_wifi(){
+bool connect_config_wifi(){
+  WiFi.disconnect();
+  delay(500);
   WiFi.begin(WIFICONFIG_SSID, WIFICONFIG_PASS);             // Connect to the network
   Serial.print("Connecting to ");
-  Serial.print(WIFICONFIG_SSID); 
-  Serial.println(" ...");
-
+  Serial.println(WIFICONFIG_SSID); 
+  
   int i = 0;
   while (WiFi.status() != WL_CONNECTED) { // Wait for the Wi-Fi to connect
     delay(1000);
     Serial.print(++i); Serial.print('.');
+    if (i > 20){
+      WiFi.disconnect();
+      return false;
+    }
   }
 
   Serial.println('\n');
@@ -212,19 +217,31 @@ void setup(void) {
   SERIAL_DEBUGC(ESP.getFlashChipRealSize()) ;
   SERIAL_DEBUGC(" Free: ") ;
   SERIAL_DEBUG(ESP.getFreeSketchSpace());
-    
-  connect_config_wifi();
-
-  httpUpdate(false);
-
+  uint8_t retry = 0;
+  while (retry < 3){  
+  if (!connect_config_wifi()){
+    //try once more
+  };
+  retry++;
+  }
+  if (!WiFi.isConnected()){
+    BLINK_ERROR;
+    delay(1000);
+    WiFi.disconnect();
+    delay(1000);
+    ESP.restart();
+    delay(1000);
+  }
+  
   //if we reached this place, we're connected
   Serial.print("Connected. IP: ");
   Serial.println(WiFi.localIP());
-  
+  httpUpdate(false);
+
   EepromConfig.begin();
 
   //load the production config via HTTP 
-  ESP.wdtEnable(5000);
+  ESP.wdtEnable(10000);
   bool bret = httpRetrieveSettings();
 
   if (bret){
