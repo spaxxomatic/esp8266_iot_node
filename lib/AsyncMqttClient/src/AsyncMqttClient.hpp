@@ -72,9 +72,9 @@ class AsyncMqttClient {
  private:
   AsyncClient _client;
 
-  bool _connected;
-  bool _connectPacketNotEnoughSpace;
-  bool _disconnectFlagged;
+  volatile bool _connected;
+  volatile bool _connectPacketNotEnoughSpace;
+  volatile bool _disconnectFlagged;
   bool _tlsBadFingerprint;
   uint32_t _lastClientActivity;
   uint32_t _lastServerActivity;

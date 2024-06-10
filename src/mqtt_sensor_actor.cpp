@@ -39,7 +39,9 @@ extern "C" {
 #include "user_interface.h"
 }
 
-uint8_t cnt_connectionerror = 0; //counts various errors during operations. If the counter exceeds a certain value, the config portal will be started
+#define MQTT_ERROR_COUNT_WIFI_RESET 10
+
+uint8_t cnt_connectionerror = 0; //counts various errors during operations. If the counter exceeds a certain value, the  wifi will be reset. This is a workaround for the unreliable WiFI.state and wifi event signaling
 
 #define INCR_CONN_ERROR cnt_connectionerror++
 
@@ -105,8 +107,37 @@ Ticker wifiReconnectTimer;
 WiFiEventHandler wifiConnectHandler;
 WiFiEventHandler wifiDisconnectHandler;
 
+
+
+/******************* WIFI STATE BUG WORKAROUNDS ************/
+
+
+
+void resetWiFi() {
+  SERIAL_DEBUG("Wifi reset");
+  #if defined(ESP32)
+  WiFi.disconnect();
+  #else // if defined(ESP32)
+  ETS_UART_INTR_DISABLE();
+  wifi_station_disconnect();
+  ETS_UART_INTR_ENABLE();
+  #endif // if defined(ESP32)();
+  
+  WiFi.mode(WIFI_OFF);  
+  WiFi.forceSleepBegin();
+  delay(1);
+  WiFi.forceSleepWake();
+  WiFi.mode(WIFI_STA);  
+  delay(1);
+  SERIAL_DEBUG("Wifi reset ok");
+}
+
+/*******************END WIFI STATE BUG WORKAROUNDS ************/
+
 void onWifiConnect(const WiFiEventStationModeGotIP& event);
 void onWifiDisconnect(const WiFiEventStationModeDisconnected& event);
+
+void mqtt_check_conn();
 
 void saveConfigParams() {
   SERIAL_DEBUG(" cb: save config");
@@ -120,6 +151,13 @@ void saveConfigParams() {
       SERIAL_DEBUG("Eeprom save failed");
     };
 }
+
+  
+#define MAX_TELNET_CLIENTS 2
+
+WiFiServer TelnetServer(23);
+WiFiClient TelnetClient[MAX_TELNET_CLIENTS];
+
 
 unsigned int count = 0;
 void flip() {
@@ -301,15 +339,20 @@ void onMqttMessage(char* topic, char* payload, AsyncMqttClientMessageProperties 
 
 
 void onMqttConnect(bool sessionPresent) {
-  SERIAL_DEBUG("MqttConnect");
+  SERIAL_DEBUG("MQTT connected");
   f_subscribe = true;
   f_SendConfigReport = true;
  
 }
 
+
 void writeOnlineState(){
-    //delete eventual last wills that might have been written by disconnects 
-  mqttClient.publish(sensor_topic, 1, true, "ONLINE");
+    //overwrite the offline status that might have been set by the last will  
+  if (mqttClient.publish(sensor_topic, 1, true, "ONLINE") == 0){
+    Serial.println("Cannot publish online state");
+    INCR_CONN_ERROR;
+    mqtt_check_conn();
+  };
 }
 
 void onMqttDisconnect(AsyncMqttClientDisconnectReason reason) {
@@ -468,9 +511,12 @@ void onWifiConnect(const WiFiEventStationModeGotIP& event)
 void onWifiDisconnect(const WiFiEventStationModeDisconnected& event)
 {
   Serial.println("Disconnected from Wi-Fi.");
-
+  if (WiFi.status() == WL_CONNECTED) { // handles wrong state report
+    Serial.println("Status is wrong, call disconnect ");
+    resetWiFi();
+  } 
   timer_mqttConnCheck.detach(); // ensure we don't reconnect to MQTT while reconnecting to Wi-Fi
-  wifiReconnectTimer.attach(5, connectToWifi);
+  wifiReconnectTimer.attach(10, connectToWifi);
 }
 
 #ifdef HAS_DHT_SENSOR
@@ -499,16 +545,16 @@ void go_deepsleep(unsigned int seconds){
 #endif
 }
 #endif
-void mqtt_check_conn();
+
 void sendHeartbeat(){
-  mqtt_check_conn();
-  batt_voltage = ESP.getVcc()/(float)1000;
-  snprintf(tempTopicBuffer, sizeof(tempTopicBuffer), "%s/data", sensor_topic);
-  sprintf(tempSendPayloadBuffer,jsonFormatBattOnly, dtostrf(batt_voltage, 6, 2, bvbuff));
-  if (mqttClient.publish(tempTopicBuffer, 1, false, tempSendPayloadBuffer) == 0){
-     SERIAL_DEBUGC("\n MQTT err send.") ;
-  };  
-  SERIAL_DEBUG("Sent HB") ;  
+  //batt_voltage = ESP.getVcc()/(float)1000;
+  //snprintf(tempTopicBuffer, sizeof(tempTopicBuffer), "%s/data", sensor_topic);
+  //sprintf(tempSendPayloadBuffer,jsonFormatBattOnly, dtostrf(batt_voltage, 6, 2, bvbuff));
+  //if (mqttClient.publish(tempTopicBuffer, 1, true, tempSendPayloadBuffer) == 0){
+  //   SERIAL_DEBUGC("\n MQTT err send.") ;
+  //};
+  SERIAL_DEBUG("Sending HB") ;  
+  writeOnlineState();
 }
 
 void mqtt_check_conn(){ //retry reconnect should be called periodically by the chk_connect timer 
@@ -520,6 +566,7 @@ void mqtt_check_conn(){ //retry reconnect should be called periodically by the c
 }
 
 void response_loop(unsigned int with_wait){
+
 
   if (sendActorState){
     sendActorState = false;
@@ -533,7 +580,14 @@ void response_loop(unsigned int with_wait){
     bSendHeartbeat = false;
     sendHeartbeat();
   }
-  
+  if (cnt_connectionerror >= MQTT_ERROR_COUNT_WIFI_RESET){
+    //this is usually an indication that the unreliable WiFi is not signaling a lost connection, neither is the state reported correctly
+    // so regardless of wifi status we reset the wifi an trigger a reconnect 
+    SERIAL_DEBUG("MQTT_ERROR_COUNT_WIFI_RESET") ;
+    resetWiFi();
+    wifiReconnectTimer.once(1, connectToWifi);
+  }
+
   //inputs handling
   if (tickOccured){
     tickOccured = false;
