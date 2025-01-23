@@ -7,8 +7,8 @@ broker_port = 1883  # Default MQTT port
 username = "mqttactor"  # Replace with your MQTT username, if authentication is enabled
 password = "mqttpass"  # Replace with your MQTT password, if authentication is enabled
 
-mac = 'b4e62d3aec70'
-name = "Terassenbewaesserung"
+mac = '5ccf7fe9ec45'
+name = "Werkstattlicht"
 # Define payload to publish
 payload = {
    "name":name,
@@ -45,7 +45,7 @@ if username and password:
 rc = client.connect(broker_address, broker_port)
 print("Connected to MQTT broker with result code " + str(rc))
     # Publish the payload to the specified topic
-client.publish(topic,  json.dumps(payload))
+client.publish(topic,  json.dumps(payload), retain=True)
 print("Payload published to topic:", topic)
 
 client.disconnect()
