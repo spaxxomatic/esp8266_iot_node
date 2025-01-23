@@ -37,6 +37,7 @@ Ticker blinker;
 
 extern "C" {
 #include "user_interface.h"
+#include "cmd.h"
 }
 
 #define MQTT_ERROR_COUNT_WIFI_RESET 10
@@ -512,7 +513,7 @@ void onWifiDisconnect(const WiFiEventStationModeDisconnected& event)
 {
   Serial.println("Disconnected from Wi-Fi.");
   if (WiFi.status() == WL_CONNECTED) { // handles wrong state report
-    Serial.println("Status is wrong, call disconnect ");
+    Serial.println("Status is wrong, disconnect");
     resetWiFi();
   } 
   timer_mqttConnCheck.detach(); // ensure we don't reconnect to MQTT while reconnecting to Wi-Fi
@@ -566,8 +567,8 @@ void mqtt_check_conn(){ //retry reconnect should be called periodically by the c
 }
 
 void response_loop(unsigned int with_wait){
-
-
+  check_serial_cmd(); //serial command avail?
+  
   if (sendActorState){
     sendActorState = false;
     snprintf(tempTopicBuffer, sizeof(tempTopicBuffer), "%s/state", actor_topic);
