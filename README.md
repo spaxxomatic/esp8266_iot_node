@@ -33,7 +33,7 @@ By sending a message like {"report":1} on the config topic, the device will answ
 The report is also sent periodically with a frequency of <log_freq>
 
 OTA:
-OTA is initiated by sending the message {"update":<ver>} on the config topic. The device will reboot immediately and during bootup will try download the firmware file <ver>.bin via http from the same ip address the MQTT server, port 9999. The update will be only attempted if the update version is newer as the installed version.
+OTA is initiated by sending the message {"update":<ver>} on the config topic. The device will reboot immediately, after restart will try to download the firmware file <ver>.bin via http from the same ip address the MQTT server, port 9999. The update will be only attempted if the update version is newer as the installed version.
 Example: {"update":100} will result in a "GET /100.bin HTTP/1.0" request.
 
 ### Future improvements (Todo's)
@@ -46,6 +46,8 @@ Sonoff schematic https://www.itead.cc/wiki/File:Sonoff-Schematic.pdf
 
 ### Programming notes:
 * When flashing via serial, set the SPI mode of your board. Some SONOFF modules are delivered with QIO, some with DOUT flash chips. Set the right value in the platform.ini or flashing will fail. 
+
+* WIRE AN EXTERNAL POWER SUPPLY WHEN PROGRAMMING SONOFF. Many failures during programming are caused by the insufficient power delivered by the on-board supply
 
 * Some cheap China USB-to-Serial modules (CH340) are causing random problems when flashing. Use FT232 USB-Serial converters to avoid headaches.
 

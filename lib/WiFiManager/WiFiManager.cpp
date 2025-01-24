@@ -680,7 +680,7 @@ void WiFiManager::handleNotFound() {
   if (captivePortal()) { // If captive portal redirect instead of displaying the error page.
     return;
   }
-  String message = "File Not Found\n\n";
+  String message = "Not a wifiman url\n\n";
   message += "URI: ";
   message += server->uri();
   message += "\nMethod: ";

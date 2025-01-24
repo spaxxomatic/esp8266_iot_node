@@ -37,8 +37,9 @@ Ticker blinker;
 
 extern "C" {
 #include "user_interface.h"
-#include "cmd.h"
 }
+#include "cmd.h"
+
 
 #define MQTT_ERROR_COUNT_WIFI_RESET 10
 
@@ -104,7 +105,7 @@ WiFiManager wifiManager;
 char str_mac[16] ;
 
 /*Wifi reconnection handling*/
-Ticker wifiReconnectTimer;
+Ticker timer_wifiReconnect;
 WiFiEventHandler wifiConnectHandler;
 WiFiEventHandler wifiDisconnectHandler;
 
@@ -190,11 +191,11 @@ if (!mqttClient.connected()){
 }
 
 void enterWifiManager(){
-  //try first default password on the ssid with the best signal
-
+  
   #ifdef DEBUG_ON
     wifiManager.setDebugOutput(true);
   #endif
+  timer_wifiReconnect.detach(); //avoid reconnect retries while in wifi manager mode
   wifiManager.setConfigPortalTimeout(300); //wait 5 min in config mode
   wifiManager.setConnectTimeout(20); //wait max 20 sec for wlan connect
   wifiManager.setSaveConfigCallback(*saveConfigParams);
@@ -352,7 +353,7 @@ void writeOnlineState(){
   if (mqttClient.publish(sensor_topic, 1, true, "ONLINE") == 0){
     Serial.println("Cannot publish online state");
     INCR_CONN_ERROR;
-    mqtt_check_conn();
+    //mqtt_check_conn();
   };
 }
 
@@ -415,9 +416,6 @@ void setup(void) {
   int i = 0;
   
   wifiConnectHandler = WiFi.onStationModeGotIP(onWifiConnect);
-  wifiDisconnectHandler = WiFi.onStationModeDisconnected(onWifiDisconnect);
-  WiFi.setSleepMode(WIFI_NONE_SLEEP);
-  
   
   if (EepromConfig.readEepromParams()){ //if we have saved params, try to connect the wlan
  
@@ -438,7 +436,7 @@ void setup(void) {
     .setWill(sensor_topic, 0, true, "OFFLINE");;
  
  
-    while (WiFi.waitForConnectResult() != WL_CONNECTED) {
+  while (WiFi.waitForConnectResult() != WL_CONNECTED) {
       Serial.println("WiFi login:");
       Serial.println(EepromConfig.settings.ssid);
       Serial.println(EepromConfig.settings.password);
@@ -460,6 +458,11 @@ void setup(void) {
   //if we reached this place, we're connected
   Serial.print("Connected. IP: ");
   Serial.println(WiFi.localIP());
+  
+  //set the disconect handler only now, after a potential wrong config had the chance to be corrected with the use of wifi manager
+  wifiDisconnectHandler = WiFi.onStationModeDisconnected(onWifiDisconnect);
+  WiFi.setSleepMode(WIFI_NONE_SLEEP);
+  
   WiFi.setAutoReconnect(true);
   WiFi.persistent(true);
   // httpUpdate();
@@ -499,7 +502,7 @@ void onWifiConnect(const WiFiEventStationModeGotIP& event)
   #ifdef DEBUG
     Serial.println("Connecting to MQTT...");
   #endif
-  wifiReconnectTimer.detach();
+  timer_wifiReconnect.detach();
   //delay(1000);
   //mqttClient.connect();
   //delay(100);
@@ -517,7 +520,7 @@ void onWifiDisconnect(const WiFiEventStationModeDisconnected& event)
     resetWiFi();
   } 
   timer_mqttConnCheck.detach(); // ensure we don't reconnect to MQTT while reconnecting to Wi-Fi
-  wifiReconnectTimer.attach(10, connectToWifi);
+  timer_wifiReconnect.attach(10, connectToWifi);
 }
 
 #ifdef HAS_DHT_SENSOR
@@ -560,8 +563,10 @@ void sendHeartbeat(){
 
 void mqtt_check_conn(){ //retry reconnect should be called periodically by the chk_connect timer 
     SERIAL_DEBUG("MQTT CKCON") ;   
-    if (!mqttClient.connected()){        
-        SERIAL_DEBUG("MQTT reconnect ..") ;      
+    if (!mqttClient.connected()){    
+        mqttClient.disconnect(true);
+        SERIAL_DEBUG("MQTT reconnect ..") ;
+        delay(200);
         mqttClient.connect();
     }
 }
@@ -581,13 +586,15 @@ void response_loop(unsigned int with_wait){
     bSendHeartbeat = false;
     sendHeartbeat();
   }
-  if (cnt_connectionerror >= MQTT_ERROR_COUNT_WIFI_RESET){
+  //
+  //this did not really worked. The mqtt reconnect is slow 
+  //if (cnt_connectionerror >= MQTT_ERROR_COUNT_WIFI_RESET){
     //this is usually an indication that the unreliable WiFi is not signaling a lost connection, neither is the state reported correctly
     // so regardless of wifi status we reset the wifi an trigger a reconnect 
-    SERIAL_DEBUG("MQTT_ERROR_COUNT_WIFI_RESET") ;
-    resetWiFi();
-    wifiReconnectTimer.once(1, connectToWifi);
-  }
+    //SERIAL_DEBUG("MQTT_ERROR_COUNT_WIFI_RESET") ;
+    //resetWiFi();
+    //wifiReconnectTimer.once(1, connectToWifi);
+  //}
 
   //inputs handling
   if (tickOccured){
@@ -749,3 +756,13 @@ void loop(void) {
   yield();
   response_loop(50);
 }
+
+void command_reset	(char* params){
+		Serial.println("Reset");
+    mqttClient.disconnect(true);
+    delay(1000);
+		WiFi.disconnect();
+    delay(2000);
+    ESP.restart();		
+    delay(500);
+};

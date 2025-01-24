@@ -9,7 +9,7 @@
 
 #define CONFIG_UNITIALIZED 0x01
 #define CONFIG_SAVED 0xDD
-
+   
 typedef struct {
   char ssid[16];
   char password[16];
@@ -75,6 +75,7 @@ class EepromConfigClass {
     EEPROM.write(FLOC_EEPARAM_SAVED, CONFIG_UNITIALIZED);
     EEPROM.commit();
   }
+  
   void validateSettings(){
     EEPROM.write(FLOC_EEPARAM_SAVED, CONFIG_SAVED);
     EEPROM.commit();
@@ -218,4 +219,46 @@ class EepromConfigClass {
 
 EepromConfigClass EepromConfig;
 
+	 void command_stat (char* params){
+		settings_t* settings = EepromConfig.getSettings();
+		Serial.println(settings->ssid);
+		Serial.println(settings->password);
+		Serial.println(settings->mqtt_server);
+		Serial.print("mqtt_usr:");
+    Serial.println(settings->mqtt_username);
+		Serial.print("mqtt_pass:");
+    Serial.println(settings->mqtt_password);
+		Serial.print("mqtt_clientname:");
+		Serial.println(settings->mqtt_clientname);
+		Serial.print("actor:");
+		Serial.println(settings->actor_state);
+	 };
+
+   	void command_set_conn_params (char* params){
+		//char * ssid; char* pwd; char* mqtt_addr; char* mqtt_user; char* mqtt_pass;
+		  Serial.print("Setting connection ");		
+      Serial.println(params);		
+
+		  char *substrings[5];
+    	char *token;
+    	int i = 0;
+
+    	// Tokenize the string
+    	token = strtok(params, " ");
+    	while (token != NULL && i < 5) {
+        	substrings[i] = token;
+        	token = strtok(NULL, " ");
+        	i++;
+    	}
+		  
+      if (i < 4) {
+    		Serial.println("Some param missing, please check the command");
+    		return;
+    	}
+		
+  		if (!EepromConfig.store_conn_info(substrings[0], substrings[1],substrings[2], substrings[3], substrings[4]))    	
+    	{
+      		Serial.println("Eeprom save failed");
+    	};
+	 };
 #endif
