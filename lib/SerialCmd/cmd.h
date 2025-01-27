@@ -21,6 +21,8 @@
 	extern void command_factory_settings (char*);
 	extern void command_set_conn_params (char*);
 	extern void command_stat (char*);
+	extern void command_enter_config (char*);
+	extern void command_trigger_update(char*);
 	
 	
 #endif //_CMD_H_

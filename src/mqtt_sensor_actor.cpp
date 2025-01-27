@@ -18,20 +18,11 @@
 #include "version.h"
 #include "eeprom_settings.h"
 #include <AsyncMqttClient.h>
-#include <WiFiManager.h>
+#include <ESP8266HTTPClient.h>
 #include <ESP8266httpUpdate.h>
-
-#ifdef HAS_DHT_SENSOR
-#include "DHT.h"
-#endif
 
 #include <Ticker.h>
 Ticker blinker;
-
-#ifdef HAS_DHT_SENSOR
-#define DHTTYPE DHT11
-#define DHTPIN 13 //GPIO13
-#endif
 
 #define FORCE_DEEPSLEEP
 
@@ -43,25 +34,28 @@ extern "C" {
 
 #define MQTT_ERROR_COUNT_WIFI_RESET 10
 
-uint8_t cnt_connectionerror = 0; //counts various errors during operations. If the counter exceeds a certain value, the  wifi will be reset. This is a workaround for the unreliable WiFI.state and wifi event signaling
+uint8_t cnt_mqtt_connectionerror = 0; //counts various errors during operations. If the counter exceeds a certain value, the  wifi will be reset. This is a workaround for the unreliable WiFI.state and wifi event signaling
 
-#define INCR_CONN_ERROR cnt_connectionerror++
+#define INCR_MQTT_CONN_ERROR cnt_mqtt_connectionerror++
 
-#define RST_CONN_ERROR cnt_connectionerror = 0
+#define RST_MQTT_CONN_ERROR cnt_mqtt_connectionerror = 0
 
-os_timer_t myTimer;
+os_timer_t ioHandlerTimer;
 
-bool tickOccured;
+bool ioHandlerTick;
 bool f_SendConfigReport;
-// start of timerCallback
-void timerCallback(void *pArg) {
-      tickOccured = true;
+
+//timer for periodocally reading IO's
+void ioTimerCallback(void *pArg) {
+      ioHandlerTick = true;
 }
 
 IPAddress mqttServerIp;
 char* mqttUsername;
 char* mqttPassword;
 AsyncMqttClient mqttClient;
+
+HTTPClient http;
 
 #ifdef HAS_DHT_SENSOR
 DHT dht(DHTPIN, DHTTYPE);
@@ -80,6 +74,8 @@ unsigned int sensorMode = MODE_SENSOR_ENABLED;
 int pwmdir = 0;
 double battV;
 
+void httpUpdate();
+
 enum SEM_STATE {
   SEM_BUFF_FREE,
   SEM_BUFF_READING,
@@ -87,7 +83,21 @@ enum SEM_STATE {
   SEM_BUFF_AWAITPROCESS
 };
 volatile uint8_t sem_lock_tempReceivePayloadBuffer = SEM_BUFF_FREE;
-volatile bool f_reconnect=false;
+
+enum AUTOCONF_STATE {
+  AUTOCONF_DISABLED,
+  AUTOCONF_START,
+  AUTOCONF_CONNECT_WIFI,  
+  AUTOCONF_WIFI_CONNECTED, 
+  AUTOCONF_GET_CONFIG,
+  AUTOCONF_GET_CONFIG_PROGRESS, 
+  AUTOCONF_GET_CONFIG_ERROR,
+  AUTOCONF_CONFIG_STORED,
+};
+
+volatile uint8_t state_autoconfig_mode = AUTOCONF_DISABLED;
+
+volatile bool f_mqtt_reconnect=false;
 volatile bool f_subscribe=false;
 volatile bool f_processConfig=false;
 volatile bool f_deleteRemoteConfig=false;
@@ -101,16 +111,25 @@ char tempReceivePayloadBuffer[MAX_JSON_MSG_LEN + 1];
 char tempTopicBuffer[128];
 
 ADC_MODE(ADC_VCC);
-WiFiManager wifiManager;
+
 char str_mac[16] ;
 
+void connectToWifi();
 /*Wifi reconnection handling*/
 Ticker timer_wifiReconnect;
+#define START_WIFI_CONNCHECK_TIMER if (!timer_wifiReconnect.active()){timer_wifiReconnect.attach(4, connectToWifi);}
+#define STOP_WIFI_CONNCHECK_TIMER timer_wifiReconnect.detach()
+
 WiFiEventHandler wifiConnectHandler;
 WiFiEventHandler wifiDisconnectHandler;
 
+Ticker timer_getConfigConnstr;
+#define TRIGGER_GET_CONFIG_CONNSTR if (!timer_getConfigConnstr.active()){ timer_getConfigConnstr.once(2, trigger_get_connstr);}
+#define STOP_GET_CONFIG_CONNSTR timer_getConfigConnstr.detach()
 
-
+void trigger_get_connstr(){
+  state_autoconfig_mode = AUTOCONF_GET_CONFIG;
+}
 /******************* WIFI STATE BUG WORKAROUNDS ************/
 
 
@@ -141,40 +160,13 @@ void onWifiDisconnect(const WiFiEventStationModeDisconnected& event);
 
 void mqtt_check_conn();
 
-void saveConfigParams() {
-  SERIAL_DEBUG(" cb: save config");
-  SERIAL_DEBUG(wifiManager.getValidSsid());
-  SERIAL_DEBUG(wifiManager.getValidPwd());
-  SERIAL_DEBUG(wifiManager.getMqttAddress());
-  //EepromConfig.store_conn_info(WiFi.SSID().c_str(), WiFi.psk().c_str());
-  if (!EepromConfig.store_conn_info(wifiManager.getValidSsid(),
-    wifiManager.getValidPwd(), wifiManager.getMqttAddress(), wifiManager.getMqttUser(), wifiManager.getMqttPassword()))
-    {
-      SERIAL_DEBUG("Eeprom save failed");
-    };
-}
 
-  
-#define MAX_TELNET_CLIENTS 2
+#define BLINK_ERROR if (!blinker.active()) {blinker.attach(0.1, flip);}
+#define BLINK_STARTING blinker.attach(0.5, flip);
+#define BLINK_STOP blinker.detach();
 
-WiFiServer TelnetServer(23);
-WiFiClient TelnetClient[MAX_TELNET_CLIENTS];
-
-
-unsigned int count = 0;
-void flip() {
-  int state = digitalRead(LED_BUILTIN);  // get the current state of GPIO1 pin
-  digitalWrite(LED_BUILTIN, !state);     // set pin to the opposite state
-
-  ++count;
-  // when the counter reaches a certain value, start blinking like crazy
-  if (count == 20) {
-    blinker.attach(0.1, flip);
-  }
-  // when the counter reaches yet another value, stop blinking
-  else if (count == 120) {
-    blinker.detach();
-  }
+void flip() {  
+  digitalWrite(LED_BUILTIN, !digitalRead(LED_BUILTIN));     // set pin to the opposite state
 }
 
 volatile boolean bSendHeartbeat = false;
@@ -185,26 +177,26 @@ void timer_heartbeat_handler(){
 void timer_mqttConnCheck_handler(){
 if (!mqttClient.connected()){
   //we do not call here reconnect, since we're in a timer routine and it must exit before any yield is called
-  f_reconnect = true; //trigger reconnection in main thread
-  INCR_CONN_ERROR;  
+  f_mqtt_reconnect = true; //trigger reconnection in main thread  
 }
 }
 
-void enterWifiManager(){
+void enterConfigWifi(){
+  // connect to a hardcoded AP and load configuration from a config service
   
-  #ifdef DEBUG_ON
-    wifiManager.setDebugOutput(true);
-  #endif
-  timer_wifiReconnect.detach(); //avoid reconnect retries while in wifi manager mode
-  wifiManager.setConfigPortalTimeout(300); //wait 5 min in config mode
-  wifiManager.setConnectTimeout(20); //wait max 20 sec for wlan connect
-  wifiManager.setSaveConfigCallback(*saveConfigParams);
-  if (!wifiManager.startConfigPortal("ESP_WAITING_CFG", "pass")) {
-    Serial.println("Failed to connect and hit timeout");
-    delay(3000);
-    ESP.restart();
-    delay(500);
-  }
+  if (state_autoconfig_mode >= AUTOCONF_CONNECT_WIFI) return;
+  
+  state_autoconfig_mode = AUTOCONF_CONNECT_WIFI;
+  
+  BLINK_STOP; BLINK_ERROR;    
+  START_WIFI_CONNCHECK_TIMER;
+  
+  Serial.println("Connecting to autoconf wifi");
+  
+}
+
+void exitConfigWifi(){
+  state_autoconfig_mode = AUTOCONF_DISABLED;
 }
 
 #define MSG_UPD_VERSION_EXISTS "Upd skip, same fw version"
@@ -252,7 +244,7 @@ void httpUpdate(){
         Serial.println(MSG_HTTP_UPDATE_OK);
         EepromConfig.set_http_update_flag(EEPROOM_HTTP_UPDATE_SUCCESS);
         //EepromConfig.store_lasterr(MSG_HTTP_UPDATE_OK);
-        ESP.restart();
+        esp_bugfree_restart();
         break;
       default:
         EepromConfig.set_http_update_flag(EEPROOM_HTTP_UPDATE_FAILED);
@@ -299,6 +291,9 @@ void actor_toggle(){
 Ticker timer_heartbeat;
 Ticker timer_mqttConnCheck;
 
+#define ENABLE_MQTT_CHECK_TIMER if (!timer_mqttConnCheck.active()) timer_mqttConnCheck.attach(5, timer_mqttConnCheck_handler)
+#define DISABLE_MQTT_CHECK_TIMER timer_mqttConnCheck.detach();
+
 #ifdef HAS_MOTION_SENSOR
 
 void motion_sensor_irq() {
@@ -315,10 +310,11 @@ bool handleConfigMsg();
 void onMqttMessage(char* topic, char* payload, AsyncMqttClientMessageProperties properties, size_t len, size_t index, size_t total) {
   SERIAL_DEBUGC("*RX pub: ");
   SERIAL_DEBUG(topic);
-  RST_CONN_ERROR;
+  RST_MQTT_CONN_ERROR;
   if (len>0){
     if (strcmp(topic, config_topic) == 0){      
-
+      //the payload needs to be processed asyncronously since the processing might block too long 
+      //so we copy the payload to a buffer and signal the further processing via the sem_lock_tempReceivePayloadBuffer
       if (len >= MAX_JSON_MSG_LEN){
         SERIAL_DEBUG(" !payld > cap");
         return ;
@@ -344,7 +340,8 @@ void onMqttConnect(bool sessionPresent) {
   SERIAL_DEBUG("MQTT connected");
   f_subscribe = true;
   f_SendConfigReport = true;
- 
+  RST_MQTT_CONN_ERROR;
+  BLINK_STOP;
 }
 
 
@@ -352,35 +349,112 @@ void writeOnlineState(){
     //overwrite the offline status that might have been set by the last will  
   if (mqttClient.publish(sensor_topic, 1, true, "ONLINE") == 0){
     Serial.println("Cannot publish online state");
-    INCR_CONN_ERROR;
-    //mqtt_check_conn();
+    INCR_MQTT_CONN_ERROR;
+    ENABLE_MQTT_CHECK_TIMER;
   };
 }
 
 void onMqttDisconnect(AsyncMqttClientDisconnectReason reason) {
-  Serial.print("Lost broker conn :");
-  INCR_CONN_ERROR;
+  BLINK_ERROR;
+  Serial.print("MQTT disconnect: ");
+  INCR_MQTT_CONN_ERROR;
   Serial.print((int) reason);
   Serial.print(" CNT ");
-  Serial.println((int) cnt_connectionerror);  
+  Serial.println((int) cnt_mqtt_connectionerror);  
 }
 
 void onMqttSubscribe(uint16_t packetId, uint8_t qos) {
   SERIAL_DEBUG("Sub ACK");
-  RST_CONN_ERROR;
+  RST_MQTT_CONN_ERROR;
 }
 
 void onMqttUnsubscribe(uint16_t packetId) {
-  SERIAL_DEBUG("Unsub ACK");
-  RST_CONN_ERROR;
+  SERIAL_DEBUG("Unsub ACK");  
 }
 
 void onMqttPublish(uint16_t packetId) {
   SERIAL_DEBUG("Pub ACK");
-  RST_CONN_ERROR;
+  RST_MQTT_CONN_ERROR;
 }
 
-void connectToWifi();
+void getStoreConnstring(){
+  STOP_GET_CONFIG_CONNSTR;
+  if (state_autoconfig_mode == AUTOCONF_GET_CONFIG_PROGRESS){ // a connection is unfinished
+    return;
+  };
+
+    char connstr_url[64];
+    sprintf(connstr_url, "/connstr/%s", str_mac);  
+
+    IPAddress host = WiFi.gatewayIP();
+    Serial.print("[HTTP] begin..");
+    if (http.begin(host.toString(), 80, connstr_url)) {  // HTTP
+      state_autoconfig_mode = AUTOCONF_GET_CONFIG_PROGRESS;
+      Serial.print(" GET ");
+      Serial.println(connstr_url);
+      // start connection and send HTTP header
+      int httpCode = http.GET();
+
+      // httpCode will be negative on error
+      if (httpCode > 0) {
+        // HTTP header has been send and Server response header has been handled
+        Serial.printf(" code: %d\n", httpCode);
+
+        // file found at server
+        if (httpCode == HTTP_CODE_OK || httpCode == HTTP_CODE_MOVED_PERMANENTLY) {
+        // get lenght of document (is -1 when Server sends no Content-Length header)
+          int len = http.getSize();
+
+          // create buffer for read
+          uint8_t buff[128] = { 0 };
+
+          // get tcp stream
+          WiFiClient * stream = &http.getStream();
+
+            // read all data from server
+            while (http.connected() && (len > 0 || len == -1)) {
+              // get available data size
+              size_t size = stream->available();
+
+              if (size) {
+                // read up to 128 byte
+                int c = stream->readBytes(buff, ((size > sizeof(buff)) ? sizeof(buff) : size));
+                // write it to Serial
+                if (len > 0) {len -= c;}
+              }
+              delay(1);
+            }
+            
+          int iret = command_set_conn_params((char*) buff, stream);
+          if (iret == 0){
+            state_autoconfig_mode = AUTOCONF_CONFIG_STORED;
+          //confirm
+            http.PUT("OK"); 
+          }else{
+            http.PUT("Settings store error"); 
+          }
+        }else{
+          state_autoconfig_mode = AUTOCONF_GET_CONFIG_ERROR;
+      //send confirmation
+      
+            int httpCode = http.PUT("ERR");
+        }
+        
+      } else {
+        Serial.printf(" error: %s\n", http.errorToString(httpCode).c_str());
+        state_autoconfig_mode = AUTOCONF_GET_CONFIG_ERROR;
+      }      
+      //http.end();
+      yield();      
+      
+      http.end();
+
+    } else {
+      Serial.printf("[HTTP] Unable to connect\n");
+      state_autoconfig_mode = AUTOCONF_GET_CONFIG_ERROR;
+    }    
+
+}
 
 void setup(void) {
   Serial.begin(115200);
@@ -388,9 +462,9 @@ void setup(void) {
   Serial.println();
   Serial.println("Boot..");
   pinMode(LED_BUILTIN, OUTPUT);
+  pinMode(LED_FLASH, OUTPUT);
   // flip the pin every 0.3s
-  blinker.attach(0.3, flip);
-  //httpUpdate();
+  BLINK_STARTING;
   
   #ifdef HAS_MOTION_SENSOR
   attachInterrupt(digitalPinToInterrupt(MOTION_SENSOR_PIN), motion_sensor_irq, FALLING);
@@ -400,6 +474,7 @@ void setup(void) {
   sprintf(str_mac,"%02x%02x%02x%02x%02x%02x",mac[0],mac[1],mac[2], mac[3], mac[4], mac[5]  );
   sprintf(actor_topic, "/actor/%s", str_mac);
   sprintf(config_topic, "/config/%s", str_mac);
+  
   sprintf(sensor_topic, "/sensor/%s", str_mac);
   sprintf(report_topic, "/report/%s", str_mac);
   Serial.println(str_mac);
@@ -409,12 +484,12 @@ void setup(void) {
   SERIAL_DEBUGC(" Free: ") ;
   SERIAL_DEBUG(ESP.getFreeSketchSpace());
   //set up timer
-  os_timer_setfn(&myTimer, timerCallback, NULL);
-  os_timer_arm(&myTimer, OS_MAIN_TIMER_MS, true);
+  os_timer_setfn(&ioHandlerTimer, ioTimerCallback, NULL);
+  os_timer_arm(&ioHandlerTimer, OS_MAIN_TIMER_MS, true);
   
   EepromConfig.begin();
-  int i = 0;
-  
+    
+  http.setReuse(true);
   wifiConnectHandler = WiFi.onStationModeGotIP(onWifiConnect);
   
   if (EepromConfig.readEepromParams()){ //if we have saved params, try to connect the wlan
@@ -425,7 +500,8 @@ void setup(void) {
   Serial.print(EepromConfig.settings.mqtt_password);
   
   WiFi.hostByName(EepromConfig.settings.mqtt_server, mqttServerIp) ;
-  
+  WiFi.onStationModeDisconnected(onWifiDisconnect);
+
   mqttClient.setServer(mqttServerIp, 1883);  
   mqttClient.setCredentials(EepromConfig.settings.mqtt_username, EepromConfig.settings.mqtt_password);
   mqttClient.onConnect(onMqttConnect);
@@ -434,98 +510,129 @@ void setup(void) {
   mqttClient.onMessage(onMqttMessage);
   mqttClient.setKeepAlive(10).setCleanSession(true).setClientId(str_mac)
     .setWill(sensor_topic, 0, true, "OFFLINE");;
- 
- 
-  while (WiFi.waitForConnectResult() != WL_CONNECTED) {
-      Serial.println("WiFi login:");
-      Serial.println(EepromConfig.settings.ssid);
-      Serial.println(EepromConfig.settings.password);
-      connectToWifi();
-      delay(200);
-      i++;
-      if (i > 4) {
-              Serial.println("Start WiFiManager ..");
-              enterWifiManager();
-            };
-    }
-  }else{
-    //no valid  eprom config, try to connect with default values
-    //EepromConfig.getDefaultConfig();
-    //go in config mode
-    Serial.print("Invalid settings, enter WM");
-    enterWifiManager();
+         
+  } else {
+    state_autoconfig_mode = AUTOCONF_START ;
   }
-  //if we reached this place, we're connected
-  Serial.print("Connected. IP: ");
-  Serial.println(WiFi.localIP());
-  
-  //set the disconect handler only now, after a potential wrong config had the chance to be corrected with the use of wifi manager
-  wifiDisconnectHandler = WiFi.onStationModeDisconnected(onWifiDisconnect);
-  WiFi.setSleepMode(WIFI_NONE_SLEEP);
-  
-  WiFi.setAutoReconnect(true);
-  WiFi.persistent(true);
-  // httpUpdate();
-      
+
   ESP.wdtEnable(5000);
   pinMode(ACTOR_PIN, OUTPUT);
   #ifdef HAS_BUTTON
   pinMode(BUTTON_PIN, INPUT_PULLUP);
   #endif
   
-  #ifdef HAS_DHT_SENSOR
-  dht.begin();
-  #endif  
-  
-  //mqttClient.connect();
+  START_WIFI_CONNCHECK_TIMER;
+  BLINK_STOP;  
   //enable PWM on led pin
-  blinker.detach();
   analogWriteFreq(100); // Hz freq
   timer_heartbeat.attach(EepromConfig.settings.log_freq, timer_heartbeat_handler);
+  
  }
 
-void connectToWifi()
-{
+volatile bool f_wifi_conn_in_progress = false;
+int cnt_wlan_connectionerror = 0;
+#define INCR_WLAN_CONN_ERR_AND_RETURN cnt_wlan_connectionerror++; f_wifi_conn_in_progress = false; return ;
+#define RST_WLAN_CONN_ERR cnt_wlan_connectionerror = 0;
 
-  Serial.println("Connecting to Wi-Fi...");
 
+void connectToWifi(){
+  
+  if (f_wifi_conn_in_progress) {
+    Serial.print ("Wifi conn in progress");
+    return;  
+  }
+
+  if (WiFi.status() == WL_CONNECTED){
+      Serial.print ("Already connected");
+      return;
+  }
+
+  char* ssid = EepromConfig.settings.ssid;
+  char* passwd =  EepromConfig.settings.password;
+  
+  Serial.println ("Ck Wi-Fi ");
+
+  f_wifi_conn_in_progress = true;
+
+  if (state_autoconfig_mode >= AUTOCONF_START){    
+    ssid = WIFI_AP_CONFIG;
+    passwd = WIFI_AP_CONFIG_PW;
+  }  
+  
+  Serial.print (" Wi-Fi ");
+  Serial.print (ssid);
+  Serial.println (passwd);
+  WiFi.persistent(false);
   WiFi.mode(WIFI_STA);
-  WiFi.begin(EepromConfig.settings.ssid, EepromConfig.settings.password);
+  WiFi.setSleepMode(WIFI_NONE_SLEEP);  
+  WiFi.setAutoReconnect(false);  
+  wl_status_t status = WiFi.begin(ssid, passwd) ;
+  if (status == WL_CONNECT_FAILED){
+    Serial.println ("Conn failed");
+    INCR_WLAN_CONN_ERR_AND_RETURN;
+  };
+  if (status == STATION_CONNECT_FAIL){
+    Serial.println ("Conn fail");
+    INCR_WLAN_CONN_ERR_AND_RETURN;
+  }; 
+  if (status == STATION_IDLE){
+    Serial.println ("err idle");
+    INCR_WLAN_CONN_ERR_AND_RETURN;
+  };    
+  if (WiFi.status() == WL_DISCONNECTED){
+    //WL_DISCONNECTED means usually that credentials are not valid
+    Serial.println ("CW disconnected");
+    INCR_WLAN_CONN_ERR_AND_RETURN;
+  }
+
+  f_wifi_conn_in_progress = false;
+
 }
 
 void onWifiConnect(const WiFiEventStationModeGotIP& event)
 {
+  STOP_WIFI_CONNCHECK_TIMER;
   #ifdef DEBUG
     Serial.println("Connected to Wi-Fi.");
     Serial.println(WiFi.localIP());
   #endif
   #ifdef DEBUG
     Serial.println("Connecting to MQTT...");
-  #endif
-  timer_wifiReconnect.detach();
-  //delay(1000);
-  //mqttClient.connect();
-  //delay(100);
-  timer_mqttConnCheck.attach(5, timer_mqttConnCheck_handler);
-
+  #endif    
+  WiFi.onStationModeDisconnected(onWifiDisconnect);
+  //only make conn persistent if we're not in config mode
+  if (state_autoconfig_mode == AUTOCONF_DISABLED){      
+    //if we reached this place, we're connected
+    ENABLE_MQTT_CHECK_TIMER;
+    Serial.print("Connected. IP: ");
+    WiFi.persistent(true);
+  }else{
+    Serial.print("Autoconf wifi connected ");
+    state_autoconfig_mode = AUTOCONF_WIFI_CONNECTED;
+  }
+  Serial.println(WiFi.localIP());  
 }
 
 // ----------------------------------------------------------------------
 
 void onWifiDisconnect(const WiFiEventStationModeDisconnected& event)
 {
-  Serial.println("Disconnected from Wi-Fi.");
+  BLINK_ERROR;    
+  Serial.print("Lost Wi-Fi ");
+  Serial.print(event.ssid);
+  Serial.print(" ");
+  Serial.println (event.reason);
+  
+  DISABLE_MQTT_CHECK_TIMER;
+  
   if (WiFi.status() == WL_CONNECTED) { // handles wrong state report
     Serial.println("Status is wrong, disconnect");
     resetWiFi();
   } 
-  timer_mqttConnCheck.detach(); // ensure we don't reconnect to MQTT while reconnecting to Wi-Fi
-  timer_wifiReconnect.attach(10, connectToWifi);
+  
+  START_WIFI_CONNCHECK_TIMER;
 }
 
-#ifdef HAS_DHT_SENSOR
-const char jsonFormatDht[] = "{\"temperature\":%s,\"humidity\":%s,\"batt\":%s}";
-#endif
 const char jsonFormatBattOnly[] = "{\"batt\":%s}";
 const char jsonFormatErr[] = "{\"error\":\"%s\"}";
 const char jsonFormatReport[] = "{\"fw\":\"%d\",\"location\":\"%s\",\"cap\":\"%s\", \"lasterr\":\"%s\"}";
@@ -534,21 +641,6 @@ float batt_voltage=0.00f;
 char tbuff[8];
 char hbuff[8];
 char bvbuff[8];
-
-//#define ONLY_SENSOR_WITH_DEEPSLEEP
-#ifdef ONLY_SENSOR_WITH_DEEPSLEEP
-void go_deepsleep(unsigned int seconds){
-  mqtt.disconnect();
-  delay(100);
-  mqtt.loop();
-#ifdef FORCE_DEEPSLEEP
-  SERIAL_DEBUGC("Deepsleep ");
-  SERIAL_DEBUGC(String(seconds));
-  ESP.deepSleep(seconds * 1000000);
-  delay(100);
-#endif
-}
-#endif
 
 void sendHeartbeat(){
   //batt_voltage = ESP.getVcc()/(float)1000;
@@ -566,39 +658,97 @@ void mqtt_check_conn(){ //retry reconnect should be called periodically by the c
     if (!mqttClient.connected()){    
         mqttClient.disconnect(true);
         SERIAL_DEBUG("MQTT reconnect ..") ;
-        delay(200);
+        yield();  
         mqttClient.connect();
     }
 }
 
-void response_loop(unsigned int with_wait){
+void loop_serial(){
   check_serial_cmd(); //serial command avail?
-  
+  yield();
+}
+
+void loop_autoconf_state(){
+  switch (state_autoconfig_mode){
+    case AUTOCONF_START:
+    case  AUTOCONF_CONNECT_WIFI :
+      enterConfigWifi(); break;
+    case AUTOCONF_WIFI_CONNECTED:
+      state_autoconfig_mode = AUTOCONF_GET_CONFIG;
+    case AUTOCONF_GET_CONFIG:
+      getStoreConnstring(); break;
+    case AUTOCONF_GET_CONFIG_PROGRESS: break;
+      //just wait 
+    case AUTOCONF_GET_CONFIG_ERROR: 
+      // if there was an error, retrigger it
+      TRIGGER_GET_CONFIG_CONNSTR; break;      
+    case AUTOCONF_CONFIG_STORED:       
+      esp_bugfree_restart(); break;
+      
+    default: break;
+  } 
+  yield();
+}
+
+void loop_connstack(){
+    /* ----------- Communication handlinng -------------*/
+  if (f_mqtt_reconnect){ 
+      f_mqtt_reconnect = false;
+      mqtt_check_conn();
+    }
+  yield();
+}
+
+void loop_mqtt(){
   if (sendActorState){
     sendActorState = false;
     snprintf(tempTopicBuffer, sizeof(tempTopicBuffer), "%s/state", actor_topic);
     itoa(EepromConfig.settings.actor_state,tempSendPayloadBuffer,10);
     if (mqttClient.publish(tempTopicBuffer, 1, true, tempSendPayloadBuffer) == 0){
       SERIAL_DEBUG("MQTT pub failed") ;
+      BLINK_ERROR;      
+    }else{
+      BLINK_STOP;
     };  
-  }  
-  if (bSendHeartbeat){
-    bSendHeartbeat = false;
-    sendHeartbeat();
+    yield();
   }
-  //
-  //this did not really worked. The mqtt reconnect is slow 
-  //if (cnt_connectionerror >= MQTT_ERROR_COUNT_WIFI_RESET){
-    //this is usually an indication that the unreliable WiFi is not signaling a lost connection, neither is the state reported correctly
-    // so regardless of wifi status we reset the wifi an trigger a reconnect 
-    //SERIAL_DEBUG("MQTT_ERROR_COUNT_WIFI_RESET") ;
-    //resetWiFi();
-    //wifiReconnectTimer.once(1, connectToWifi);
-  //}
+  if (bSendHeartbeat){
+      bSendHeartbeat = false;
+      sendHeartbeat();
+      yield();
+  }  
+  if (f_subscribe){
+      f_subscribe = false;
+      handleSubscribe();
+      yield();
+  }  
+  if (sem_lock_tempReceivePayloadBuffer == SEM_BUFF_AWAITPROCESS){    
+      //we received a config message, process it async    
+      handleConfigMsg();
+      sem_lock_tempReceivePayloadBuffer = SEM_BUFF_FREE;      
+      yield();
+  }    
+  if (f_deleteRemoteConfig){
+      f_deleteRemoteConfig = false;
+      mqttClient.publish(config_topic, 1, false);
+      yield();
+  }  
+  if (f_SendConfigReport){
+      f_SendConfigReport = false;  
+      char lasterr[EEPARAM_LASTERR_LEN] ;
+      EepromConfig.get_lasterr(lasterr);
+      lasterr[EEPARAM_LASTERR_LEN-1] = '\0'; //buffer overflow protection
+      sprintf(tempSendPayloadBuffer,jsonFormatReport, FW_VERSION, EepromConfig.settings.location, CAPABILITIES, lasterr);
+      mqttClient.publish(report_topic, 1, true, tempSendPayloadBuffer);
+      yield();
+  }
 
+}
+
+void loop_hw_io(){
   //inputs handling
-  if (tickOccured){
-    tickOccured = false;
+  if (ioHandlerTick){
+    ioHandlerTick = false;
     //we read the button state only once every tick, (debouncing)
     #ifdef HAS_BUTTON
     uint8_t val = digitalRead(BUTTON_PIN);  // read input value
@@ -613,56 +763,33 @@ void response_loop(unsigned int with_wait){
      }
      if (iButtonState >= 20){ // around 20*0.2 seconds 
        //4 presses - enter wifi manager
-       Serial.println("BP->Enter WM");
-       enterWifiManager();
+       Serial.println("BP->Enter config");
+       if (state_autoconfig_mode == AUTOCONF_DISABLED || state_autoconfig_mode == AUTOCONF_GET_CONFIG_ERROR){
+        command_enter_config(nullptr);
+       }
      }     
     #endif
-  }
-  pwmval+=pwmdir;
-  analogWrite(LED_BUILTIN, pwmval);
-  if (pwmval >=1000) pwmdir = -20;
-  if (pwmval <= 20) pwmdir = 20;
-  
-  if (with_wait>0){
-    delay(with_wait);
-  }
-  if (f_reconnect){ 
-    f_reconnect = false;
-    mqtt_check_conn();
-  }
-  if (f_subscribe){
-    f_subscribe = false;
-    handleSubscribe();
-  }  
-  if (sem_lock_tempReceivePayloadBuffer == SEM_BUFF_AWAITPROCESS){    
-    //we received a config message, process it async    
-    handleConfigMsg();
-    sem_lock_tempReceivePayloadBuffer = SEM_BUFF_FREE;      
-  }    
-  if (f_deleteRemoteConfig){
-    f_deleteRemoteConfig = false;
-    mqttClient.publish(config_topic, 1, false);
-  }
- if (f_SendConfigReport){
-    f_SendConfigReport = false;  
-    char lasterr[EEPARAM_LASTERR_LEN] ;
-    EepromConfig.get_lasterr(lasterr);
-    lasterr[EEPARAM_LASTERR_LEN-1] = '\0'; //buffer overflow protection
-    sprintf(tempSendPayloadBuffer,jsonFormatReport, FW_VERSION, EepromConfig.settings.location, CAPABILITIES, lasterr);
-    mqttClient.publish(report_topic, 1, true, tempSendPayloadBuffer);
+    
+    if (!blinker.active()){
+      /* show normal operation by dimming the LED up and down */  
+      pwmval+=pwmdir;
+      analogWrite(LED_BUILTIN, pwmval);
+      if (pwmval >=980) pwmdir = -50;
+      if (pwmval <= 40) pwmdir = 50;
+    }    
   }
 }
+
 
 void handleSubscribe(){  
   writeOnlineState();
   mqttClient.subscribe(actor_topic, 2);  
-  mqttClient.subscribe(config_topic, 2);
+  mqttClient.subscribe(config_topic, 2);    
 }
 
 bool handleConfigMsg(){
-
     if (sem_lock_tempReceivePayloadBuffer == SEM_BUFF_WRITING){
-      SERIAL_DEBUG ("! HCM bufflock");  
+      SERIAL_DEBUG ("! bufflock");  
       SERIAL_DEBUG (tempReceivePayloadBuffer);
       return false;
     }
@@ -706,10 +833,7 @@ bool handleConfigMsg(){
         uint16_t update_firmware_version = jsonRoot["update"];
         if (update_firmware_version){
           SERIAL_DEBUGC ("Set update FW ");
-          SERIAL_DEBUGC (update_firmware_version);
-          EepromConfig.store_update_firmware_version(update_firmware_version);
-          EepromConfig.set_http_update_flag(EEPROOM_HTTP_UPDATE_DO_ON_REBOOT);
-          ESP.restart();
+          command_trigger_update(update_firmware_version);
         }                
         
         #ifdef HAS_MOTION_SENSOR
@@ -751,18 +875,33 @@ void handleActorMsg(char* payload, int length){
 
 }
 
-
 void loop(void) {
   yield();
-  response_loop(50);
+  //delay(50);
+  loop_hw_io();
+  loop_serial();
+  if (state_autoconfig_mode > AUTOCONF_DISABLED){
+    //we are in autoconf mode, handle only the autoconf loop
+    loop_autoconf_state();
+  }else{
+    loop_mqtt();
+    loop_connstack();  
+  }
 }
 
 void command_reset	(char* params){
 		Serial.println("Reset");
     mqttClient.disconnect(true);
-    delay(1000);
+    delay(400);
 		WiFi.disconnect();
-    delay(2000);
-    ESP.restart();		
-    delay(500);
-};
+    delay(400);
+    esp_bugfree_restart();
+    delay(100);
+}
+
+void command_enter_config	(char* params){
+		Serial.println("Enter conf");
+    mqttClient.disconnect(true);
+		WiFi.disconnect();
+    state_autoconfig_mode = AUTOCONF_START;
+}

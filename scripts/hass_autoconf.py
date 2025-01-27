@@ -7,8 +7,8 @@ broker_port = 1883  # Default MQTT port
 username = "mqttactor"  # Replace with your MQTT username, if authentication is enabled
 password = "mqttpass"  # Replace with your MQTT password, if authentication is enabled
 
-mac = '5ccf7fe9ec45'
-name = "Werkstattlicht"
+mac = 'a020a6080932'
+name = "NodeMCU handverdrahtet"
 # Define payload to publish
 payload = {
    "name":name,

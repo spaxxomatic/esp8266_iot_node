@@ -10,4 +10,6 @@
 #define SERIAL_DEBUGC(...)
 #endif
 
+#define DEBUG_ON
+
 #endif //debug_h

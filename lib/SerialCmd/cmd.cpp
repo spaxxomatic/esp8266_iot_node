@@ -11,6 +11,8 @@ COMMAND_STRUCTUR COMMAND_TABELLE[] =
 	{"fs",command_factory_settings}, 
 	{"sp",command_set_conn_params},
 	{"st",command_stat},
+	{"ec",command_enter_config},	
+	{"fu",command_trigger_update},
 	{"??",command_help},
 	{{00},NULL} 
 };
@@ -19,7 +21,9 @@ const char helptext[] = {
 		"re Restart\r\n"
 		"sp Set conn params (ssid, pwd, mqtt_addr, mqtt_user, mqtt_pass)\r\n"
 		"fs Factory settings\r\n"
+		"ec Enter config\r\n"
 		"st Dump status\r\n"
+		"fu Firmware update\r\n"
 		"?? HELP\r\n"				
 		"\r\n"
 };

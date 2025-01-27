@@ -5,7 +5,7 @@
 //#define HAS_SENSOR 0b00000010
 #define MQTTSETTING_HAS_SERVER 0b00000100
 //#define HAS_DHT_SENSOR
-#define OS_MAIN_TIMER_MS 200
+#define OS_MAIN_TIMER_MS 100
 
 #define CONFIG_UNITIALIZED 0x01
 #define CONFIG_SAVED 0xDD
@@ -219,25 +219,23 @@ class EepromConfigClass {
 
 EepromConfigClass EepromConfig;
 
-	 void command_stat (char* params){
+	void command_stat ( Stream* stream){
 		settings_t* settings = EepromConfig.getSettings();
-		Serial.println(settings->ssid);
-		Serial.println(settings->password);
-		Serial.println(settings->mqtt_server);
-		Serial.print("mqtt_usr:");
-    Serial.println(settings->mqtt_username);
-		Serial.print("mqtt_pass:");
-    Serial.println(settings->mqtt_password);
-		Serial.print("mqtt_clientname:");
-		Serial.println(settings->mqtt_clientname);
-		Serial.print("actor:");
-		Serial.println(settings->actor_state);
+		stream->printf("Wifi %s %s", settings->ssid, settings->password);
+		stream->printf("mqtt: %s %s %s\n", settings->mqtt_server, settings->mqtt_username, settings->mqtt_password);
+		stream->printf("actor: %i\n", settings->actor_state);
+    stream->printf("Sketch-size %i\n", ESP.getSketchSize());
+    stream->printf("Chip-size %i\n", ESP.getFlashChipRealSize());    
 	 };
 
-   	void command_set_conn_params (char* params){
+  void command_stat (char* params){
+    command_stat( &Serial);
+  }
+
+  int command_set_conn_params (char* params, Stream* stream){
 		//char * ssid; char* pwd; char* mqtt_addr; char* mqtt_user; char* mqtt_pass;
-		  Serial.print("Setting connection ");		
-      Serial.println(params);		
+		  stream->print("Setting connection ");		
+      stream->println(params);		
 
 		  char *substrings[5];
     	char *token;
@@ -252,13 +250,44 @@ EepromConfigClass EepromConfig;
     	}
 		  
       if (i < 4) {
-    		Serial.println("Some param missing, please check the command");
-    		return;
+    		stream->println("Some param missing, please check connection string");
+    		return -1;
     	}
 		
   		if (!EepromConfig.store_conn_info(substrings[0], substrings[1],substrings[2], substrings[3], substrings[4]))    	
     	{
-      		Serial.println("Eeprom save failed");
+      		stream->println("Eeprom save failed");
+          return -1;
     	};
-	 };
+      return 0;
+	 }
+
+    void command_set_conn_params (char* params){
+      command_set_conn_params(params, &Serial);
+    }
+
+    void esp_bugfree_restart(){
+      // implementing some of the tips from https://github.com/esp8266/Arduino/issues/1722 to avoid hanging restarts
+      //.... I set GPIO#0 high before doing the restart and it works!
+      pinMode(0, INPUT_PULLUP);
+      WiFi.forceSleepBegin(); delay(100); wdt_reset(); ESP.restart(); while( 1) wdt_reset();
+    }
+
+    void command_trigger_update(uint16_t fw_version){
+        if (fw_version <= FW_VERSION){
+          Serial.printf("Version %i older than actual version %i \n", fw_version, FW_VERSION);
+          return ;
+        };
+        EepromConfig.set_http_update_flag(EEPROOM_HTTP_UPDATE_DO_ON_REBOOT);        
+        EepromConfig.store_update_firmware_version(fw_version);
+        esp_bugfree_restart();
+    } 
+
+    void command_trigger_update(char* params){
+        
+        uint16_t fw_update_ver = atol(params);
+        command_trigger_update(fw_update_ver);
+    }
+
+
 #endif

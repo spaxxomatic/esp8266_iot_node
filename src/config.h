@@ -3,7 +3,10 @@
 #define SONOFF_BOARD 1
 #define NODEMCU_BOARD 2
 
-#define BOARDTYPE SONOFF_BOARD
+#define WIFI_AP_CONFIG "ESPCONFIGAP"
+#define WIFI_AP_CONFIG_PW "ESPCONFIGPW"
+
+//#define BOARDTYPE SONOFF_BOARD
 //#define BOARDTYPE NODEMCU_BOARD
 
 //is a motion sensor connected?
@@ -17,14 +20,14 @@
   #define CAPABILITIES "NODEMCU"
   #define BOARD_CONFIG_OK
   #define ACTOR_PIN 12
+  #define LED_BUILTIN 16
+  #define LED_FLASH 2
   #ifdef HAS_MOTION_SENSOR
     #define MOTION_SENSOR_PIN 14
-    #define MOTION_SENSOR_DEFAULT_TIMER 4
-    #define CAPABILITIES CAPABILITIES " MOTION"
+    #define MOTION_SENSOR_DEFAULT_TIMER 4    
   #endif
   #ifdef HAS_BUTTON
-    #define BUTTON_PIN 0
-    #define CAPABILITIES CAPABILITIES " BUTTON"
+    #define BUTTON_PIN 0    
   #endif
 #endif
 
