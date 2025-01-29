@@ -4,7 +4,9 @@ from http.server import HTTPServer as BaseHTTPServer, SimpleHTTPRequestHandler
 import os
 from urllib.parse import urlparse, unquote
 
-
+def get_conn_info(mac):
+    return "trestie_2G 11213141 192.168.1.5 mqttactor mqttpass"
+    
 class HTTPHandler(SimpleHTTPRequestHandler):
     """This handler uses server.base_path instead of always using os.getcwd()"""
 
@@ -26,7 +28,7 @@ class HTTPHandler(SimpleHTTPRequestHandler):
             identifier = unquote(parsed_url.path[len("/connstr/"):])
             print (identifier)        
             # Respond with a connection string or similar info
-            conn_info = "trestie_2G 11213141 192.168.1.7 mqttactor mqttpass"
+            conn_info = get_conn_info(identifier)
             self.send_response(200)
             self.send_header("Content-type", "text/html")
             self.end_headers()
@@ -42,7 +44,7 @@ class HTTPServer(BaseHTTPServer):
         self.base_path = base_path
         BaseHTTPServer.__init__(self, server_address, RequestHandlerClass)
 
-
-web_dir = os.path.join(os.path.dirname(__file__), 'my_dir')
-httpd = HTTPServer(web_dir, ("", 80))
-httpd.serve_forever()
+def start_config_server():
+    web_dir = os.path.join(os.path.dirname(__file__), 'my_dir')
+    httpd = HTTPServer(web_dir, ("", 80))
+    httpd.serve_forever()

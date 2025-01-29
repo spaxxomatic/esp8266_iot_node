@@ -23,7 +23,9 @@
 	extern void command_stat (char*);
 	extern void command_enter_config (char*);
 	extern void command_trigger_update(char*);
-	
+	#ifdef ESP32
+	extern void command_ble(char*);
+	#endif
 	
 #endif //_CMD_H_
 

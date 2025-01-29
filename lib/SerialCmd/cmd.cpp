@@ -1,5 +1,4 @@
 #include <Arduino.h>
-#include <ESP8266WiFi.h>
 
 #include "cmd.h"
 
@@ -13,6 +12,9 @@ COMMAND_STRUCTUR COMMAND_TABELLE[] =
 	{"st",command_stat},
 	{"ec",command_enter_config},	
 	{"fu",command_trigger_update},
+#ifdef ESP32	
+	{"bt",command_ble},
+#endif	
 	{"??",command_help},
 	{{00},NULL} 
 };
@@ -20,6 +22,9 @@ COMMAND_STRUCTUR COMMAND_TABELLE[] =
 const char helptext[] = {
 		"re Restart\r\n"
 		"sp Set conn params (ssid, pwd, mqtt_addr, mqtt_user, mqtt_pass)\r\n"
+#ifdef ESP32		
+		"bt [on,off] enable/disable bluetooth\r\n"
+#endif		
 		"fs Factory settings\r\n"
 		"ec Enter config\r\n"
 		"st Dump status\r\n"

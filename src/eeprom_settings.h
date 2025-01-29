@@ -9,7 +9,11 @@
 
 #define CONFIG_UNITIALIZED 0x01
 #define CONFIG_SAVED 0xDD
-   
+
+#ifdef ESP32
+#include <esp_task_wdt.h>
+#endif 
+
 typedef struct {
   char ssid[16];
   char password[16];
@@ -219,13 +223,28 @@ class EepromConfigClass {
 
 EepromConfigClass EepromConfig;
 
-	void command_stat ( Stream* stream){
-		settings_t* settings = EepromConfig.getSettings();
-		stream->printf("Wifi %s %s", settings->ssid, settings->password);
-		stream->printf("mqtt: %s %s %s\n", settings->mqtt_server, settings->mqtt_username, settings->mqtt_password);
-		stream->printf("actor: %i\n", settings->actor_state);
+  void command_stat ( Stream* stream){
+		
+    byte mac[6];
+    WiFi.macAddress(mac);
+    stream->printf("MAC %02x%02x%02x%02x%02x%02x \n",mac[0],mac[1],mac[2], mac[3], mac[4], mac[5]  );		    
+    stream->printf("IP %s \n",WiFi.localIP().toString().c_str());        
+    #ifdef ESP32
+    stream->printf("Total heap: %d\n", ESP.getHeapSize());
+    stream->printf("Free heap: %d\n", ESP.getFreeHeap());    
+    #endif
     stream->printf("Sketch-size %i\n", ESP.getSketchSize());
+    #ifdef ESP32
+    stream->printf("Chip-size %i\n", ESP.getFlashChipSize());    
+    //stream->printf("Total PSRAM: %d", ESP.getPsramSize());
+    //stream->printf("Free PSRAM: %d", ESP.getFreePsram());    
+    #else
     stream->printf("Chip-size %i\n", ESP.getFlashChipRealSize());    
+    #endif
+    yield();
+    stream->printf("Wifi %s %s", EepromConfig.settings.ssid, EepromConfig.settings.password);
+		stream->printf("mqtt: %s %s %s\n", EepromConfig.settings.mqtt_server, EepromConfig.settings.mqtt_username, EepromConfig.settings.mqtt_password);
+		stream->printf("actor: %i\n", EepromConfig.settings.actor_state);
 	 };
 
   void command_stat (char* params){
@@ -270,7 +289,16 @@ EepromConfigClass EepromConfig;
       // implementing some of the tips from https://github.com/esp8266/Arduino/issues/1722 to avoid hanging restarts
       //.... I set GPIO#0 high before doing the restart and it works!
       pinMode(0, INPUT_PULLUP);
-      WiFi.forceSleepBegin(); delay(100); wdt_reset(); ESP.restart(); while( 1) wdt_reset();
+      
+      #ifdef ESP32
+      ESP.restart();
+      #else
+      WiFi.forceSleepBegin();
+      delay(100);
+      wdt_reset(); 
+      ESP.restart(); 
+      while( 1) wdt_reset();
+      #endif
     }
 
     void command_trigger_update(uint16_t fw_version){

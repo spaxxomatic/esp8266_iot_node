@@ -8,29 +8,44 @@
 #include "debug.h"
 #include <Arduino.h>
 
-#include <DNSServer.h>
+#if defined(ESP32)
+
+#include <WiFi.h>
+#include <HTTPClient.h>
+#include <WebServer.h>
+#include <SPIFFS.h>
+#include <Update.h>
+#include <esp_task_wdt.h>
+#include <esp_system.h>  
+#include <ESP32httpUpdate.h>
+#else
+
 #include <ESP8266WiFi.h>
 #include <WiFiClient.h>
 #include <ESP8266WebServer.h>
+#include <ESP8266HTTPClient.h>
+#include <ESP8266httpUpdate.h>
+
+#endif
+
+#include <DNSServer.h>
 #include <EEPROM.h>
 #include <ArduinoJson.h>
 #include "config.h"
 #include "version.h"
 #include "eeprom_settings.h"
+#include "btle_conn.h"
 #include <AsyncMqttClient.h>
-#include <ESP8266HTTPClient.h>
-#include <ESP8266httpUpdate.h>
 
 #include <Ticker.h>
 Ticker blinker;
 
 #define FORCE_DEEPSLEEP
 
-extern "C" {
-#include "user_interface.h"
-}
+//extern "C" {
+//#include "user_interface.h"
+//}
 #include "cmd.h"
-
 
 #define MQTT_ERROR_COUNT_WIFI_RESET 10
 
@@ -40,13 +55,21 @@ uint8_t cnt_mqtt_connectionerror = 0; //counts various errors during operations.
 
 #define RST_MQTT_CONN_ERROR cnt_mqtt_connectionerror = 0
 
+#ifdef ESP32
+hw_timer_t *ioHandlerTimer = NULL;
+#else
 os_timer_t ioHandlerTimer;
+#endif
 
 bool ioHandlerTick;
 bool f_SendConfigReport;
 
-//timer for periodocally reading IO's
+//timer for periodically reading IO's
+#ifdef ESP32
+void ioTimerCallback() {
+#else  
 void ioTimerCallback(void *pArg) {
+#endif  
       ioHandlerTick = true;
 }
 
@@ -82,6 +105,7 @@ enum SEM_STATE {
   SEM_BUFF_WRITING, 
   SEM_BUFF_AWAITPROCESS
 };
+
 volatile uint8_t sem_lock_tempReceivePayloadBuffer = SEM_BUFF_FREE;
 
 enum AUTOCONF_STATE {
@@ -110,7 +134,9 @@ char tempSendPayloadBuffer[256];
 char tempReceivePayloadBuffer[MAX_JSON_MSG_LEN + 1];
 char tempTopicBuffer[128];
 
+#ifndef ESP32
 ADC_MODE(ADC_VCC);
+#endif
 
 char str_mac[16] ;
 
@@ -120,8 +146,6 @@ Ticker timer_wifiReconnect;
 #define START_WIFI_CONNCHECK_TIMER if (!timer_wifiReconnect.active()){timer_wifiReconnect.attach(4, connectToWifi);}
 #define STOP_WIFI_CONNCHECK_TIMER timer_wifiReconnect.detach()
 
-WiFiEventHandler wifiConnectHandler;
-WiFiEventHandler wifiDisconnectHandler;
 
 Ticker timer_getConfigConnstr;
 #define TRIGGER_GET_CONFIG_CONNSTR if (!timer_getConfigConnstr.active()){ timer_getConfigConnstr.once(2, trigger_get_connstr);}
@@ -130,20 +154,18 @@ Ticker timer_getConfigConnstr;
 void trigger_get_connstr(){
   state_autoconfig_mode = AUTOCONF_GET_CONFIG;
 }
+
+
 /******************* WIFI STATE BUG WORKAROUNDS ************/
-
-
-
 void resetWiFi() {
   SERIAL_DEBUG("Wifi reset");
   #if defined(ESP32)
-  WiFi.disconnect();
+  WiFi.disconnect(true);
   #else // if defined(ESP32)
+  WiFi.disconnect();
   ETS_UART_INTR_DISABLE();
   wifi_station_disconnect();
-  ETS_UART_INTR_ENABLE();
-  #endif // if defined(ESP32)();
-  
+  ETS_UART_INTR_ENABLE();  
   WiFi.mode(WIFI_OFF);  
   WiFi.forceSleepBegin();
   delay(1);
@@ -151,15 +173,20 @@ void resetWiFi() {
   WiFi.mode(WIFI_STA);  
   delay(1);
   SERIAL_DEBUG("Wifi reset ok");
+  #endif
 }
 
 /*******************END WIFI STATE BUG WORKAROUNDS ************/
 
+#if defined(ESP32)
+
+#else
 void onWifiConnect(const WiFiEventStationModeGotIP& event);
 void onWifiDisconnect(const WiFiEventStationModeDisconnected& event);
 
-void mqtt_check_conn();
+#endif
 
+void mqtt_check_conn();
 
 #define BLINK_ERROR if (!blinker.active()) {blinker.attach(0.1, flip);}
 #define BLINK_STARTING blinker.attach(0.5, flip);
@@ -208,7 +235,11 @@ void httpUpdate(){
     return;
   }    
   if (EepromConfig.get_http_update_flag() == EEPROOM_HTTP_UPDATE_DO_ON_REBOOT){      
+    #ifdef ESP32
+    ESP32HTTPUpdate ESPhttpUpdate;    
+    #else
     ESP8266HTTPUpdate ESPhttpUpdate;    
+    #endif
     char* server_ip = EepromConfig.settings.mqtt_server;
     uint16_t update_fw_ver = EepromConfig.settings.update_fw_ver;
     if (update_fw_ver == FW_VERSION){
@@ -223,7 +254,11 @@ void httpUpdate(){
     snprintf(tempSendPayloadBuffer, sizeof(tempSendPayloadBuffer),  "%d.bin", update_fw_ver); //misusing the tempSendPayloadBuffer to store the url
     EepromConfig.set_http_update_flag(EEPROOM_HTTP_UPDATE_STARTED);
     ESPhttpUpdate.rebootOnUpdate(false);
+    #ifdef ESP32    
+    esp_task_wdt_deinit();            
+    #else
     ESP.wdtDisable();
+    #endif
     SERIAL_DEBUGC("Start httpUpdate from ");
     SERIAL_DEBUG(tempSendPayloadBuffer);
         
@@ -418,8 +453,7 @@ void getStoreConnstring(){
 
               if (size) {
                 // read up to 128 byte
-                int c = stream->readBytes(buff, ((size > sizeof(buff)) ? sizeof(buff) : size));
-                // write it to Serial
+                int c = stream->readBytes(buff, ((size > sizeof(buff)) ? sizeof(buff) : size));                
                 if (len > 0) {len -= c;}
               }
               delay(1);
@@ -456,6 +490,8 @@ void getStoreConnstring(){
 
 }
 
+#define WDT_TIMEOUT 8
+
 void setup(void) {
   Serial.begin(115200);
   Serial.setTimeout(1000);
@@ -478,29 +514,43 @@ void setup(void) {
   sprintf(sensor_topic, "/sensor/%s", str_mac);
   sprintf(report_topic, "/report/%s", str_mac);
   Serial.println(str_mac);
-
-  SERIAL_DEBUGC("Flash size") ;
-  SERIAL_DEBUGC(ESP.getFlashChipRealSize()) ;
   SERIAL_DEBUGC(" Free: ") ;
   SERIAL_DEBUG(ESP.getFreeSketchSpace());
   //set up timer
-  os_timer_setfn(&ioHandlerTimer, ioTimerCallback, NULL);
-  os_timer_arm(&ioHandlerTimer, OS_MAIN_TIMER_MS, true);
+  #ifdef ESP32
+     //The timer’s counter divider is used as a divisor of the incoming 80 MHz APB_CLK clock.
+    ioHandlerTimer = timerBegin(0, 8000, true);  // Timer 0, divider 80000 (1000 Hz tick)
+    // Attach onTimer function to our timer.        
+    timerAttachInterrupt(ioHandlerTimer, ioTimerCallback, true);  // Attach callback function
+    timerAlarmWrite(ioHandlerTimer, OS_MAIN_TIMER_MS*10, true);
+    timerAlarmEnable(ioHandlerTimer);  // Enable the timer        
+  #else
+    os_timer_setfn(&ioHandlerTimer, ioTimerCallback, NULL);
+    os_timer_arm(&ioHandlerTimer, OS_MAIN_TIMER_MS, true);
+  #endif
   
   EepromConfig.begin();
     
   http.setReuse(true);
-  wifiConnectHandler = WiFi.onStationModeGotIP(onWifiConnect);
+  #ifdef ESP32
+  
+  void onWifiEvent(WiFiEvent_t event) ;
+  
+  WiFi.onEvent(onWifiEvent);
+
+  #else
+  WiFi.onStationModeGotIP(onWifiConnect);
+  WiFi.onStationModeDisconnected(onWifiDisconnect);
+  #endif
   
   if (EepromConfig.readEepromParams()){ //if we have saved params, try to connect the wlan
- 
+  
   Serial.print("MQTT srv parms");
   Serial.print(EepromConfig.settings.mqtt_server);
   Serial.print(EepromConfig.settings.mqtt_username);
   Serial.print(EepromConfig.settings.mqtt_password);
   
   WiFi.hostByName(EepromConfig.settings.mqtt_server, mqttServerIp) ;
-  WiFi.onStationModeDisconnected(onWifiDisconnect);
 
   mqttClient.setServer(mqttServerIp, 1883);  
   mqttClient.setCredentials(EepromConfig.settings.mqtt_username, EepromConfig.settings.mqtt_password);
@@ -514,8 +564,12 @@ void setup(void) {
   } else {
     state_autoconfig_mode = AUTOCONF_START ;
   }
-
+  #ifdef ESP32
+  esp_task_wdt_init(WDT_TIMEOUT, true); //enable panic so ESP32 restarts
+  esp_task_wdt_add(NULL); //add current thread to WDT watch
+  #else
   ESP.wdtEnable(5000);
+  #endif
   pinMode(ACTOR_PIN, OUTPUT);
   #ifdef HAS_BUTTON
   pinMode(BUTTON_PIN, INPUT_PULLUP);
@@ -524,7 +578,9 @@ void setup(void) {
   START_WIFI_CONNCHECK_TIMER;
   BLINK_STOP;  
   //enable PWM on led pin
+  #ifndef ESP32
   analogWriteFreq(100); // Hz freq
+  #endif
   timer_heartbeat.attach(EepromConfig.settings.log_freq, timer_heartbeat_handler);
   
  }
@@ -534,6 +590,22 @@ int cnt_wlan_connectionerror = 0;
 #define INCR_WLAN_CONN_ERR_AND_RETURN cnt_wlan_connectionerror++; f_wifi_conn_in_progress = false; return ;
 #define RST_WLAN_CONN_ERR cnt_wlan_connectionerror = 0;
 
+#ifdef ESP32
+
+void connected_to_ap(WiFiEvent_t wifi_event, WiFiEventInfo_t wifi_info){
+    Serial.println("[+] Connected to the WiFi network");
+}
+
+void disconnected_from_ap(WiFiEvent_t wifi_event, WiFiEventInfo_t wifi_info){
+    Serial.println("[-] Disconnected from the WiFi AP");
+}
+
+void got_ip_from_ap(WiFiEvent_t wifi_event, WiFiEventInfo_t wifi_info){
+    Serial.print("[+] Local ESP32 IP: ");
+    Serial.println(WiFi.localIP());
+}
+
+#endif
 
 void connectToWifi(){
   
@@ -555,8 +627,9 @@ void connectToWifi(){
   f_wifi_conn_in_progress = true;
 
   if (state_autoconfig_mode >= AUTOCONF_START){    
-    ssid = WIFI_AP_CONFIG;
-    passwd = WIFI_AP_CONFIG_PW;
+    strcpy(ssid,  WIFI_AP_CONFIG);
+    strcpy(passwd,  WIFI_AP_CONFIG_PW);
+     
   }  
   
   Serial.print (" Wi-Fi ");
@@ -564,21 +637,36 @@ void connectToWifi(){
   Serial.println (passwd);
   WiFi.persistent(false);
   WiFi.mode(WIFI_STA);
+  #ifdef ESP32
+  WiFi.setSleep(WIFI_PS_MIN_MODEM);
+  #else
   WiFi.setSleepMode(WIFI_NONE_SLEEP);  
+  #endif
   WiFi.setAutoReconnect(false);  
   wl_status_t status = WiFi.begin(ssid, passwd) ;
   if (status == WL_CONNECT_FAILED){
     Serial.println ("Conn failed");
     INCR_WLAN_CONN_ERR_AND_RETURN;
   };
-  if (status == STATION_CONNECT_FAIL){
+  #ifdef ESP32
+  if (status == WL_NO_SSID_AVAIL || status == WL_CONNECT_FAILED ){
+    Serial.println ("No SSID or connect failed");
+    INCR_WLAN_CONN_ERR_AND_RETURN;  
+  }
+  if (status == WL_CONNECTION_LOST){
+    Serial.println ("Conn lost");
+    INCR_WLAN_CONN_ERR_AND_RETURN;  
+  }  
+  #else  
+  if (status == STATION_CONNECT_FAIL){  
     Serial.println ("Conn fail");
     INCR_WLAN_CONN_ERR_AND_RETURN;
   }; 
   if (status == STATION_IDLE){
     Serial.println ("err idle");
     INCR_WLAN_CONN_ERR_AND_RETURN;
-  };    
+  }; 
+  #endif   
   if (WiFi.status() == WL_DISCONNECTED){
     //WL_DISCONNECTED means usually that credentials are not valid
     Serial.println ("CW disconnected");
@@ -589,16 +677,45 @@ void connectToWifi(){
 
 }
 
+#if defined(ESP32)
+void onWifiEvent(WiFiEvent_t event) {
+    Serial.printf("[WiFi event]: %s\n", WiFi.eventName(event));
+    switch(event) {
+    case SYSTEM_EVENT_STA_GOT_IP:
+        STOP_WIFI_CONNCHECK_TIMER;
+        Serial.print("Connected to Wi-Fi. IP: ");
+        Serial.println(WiFi.localIP());
+                
+        if (state_autoconfig_mode == AUTOCONF_DISABLED){ 
+          WiFi.persistent(true);
+          ENABLE_MQTT_CHECK_TIMER;          
+        }else{
+          Serial.print("Autoconf wifi connected ");
+          state_autoconfig_mode = AUTOCONF_WIFI_CONNECTED;
+        }
+        break;
+    case SYSTEM_EVENT_STA_DISCONNECTED:
+        BLINK_ERROR;    
+        Serial.print("Lost Wi-Fi ");
+        Serial.print(WiFi.SSID());
+        
+        DISABLE_MQTT_CHECK_TIMER;
+        yield();
+        if (WiFi.status() == WL_CONNECTED) { // handles wrong state report
+          Serial.println("Status is wrong, disconnect");
+          resetWiFi();
+        }         
+        START_WIFI_CONNCHECK_TIMER;
+        break;
+    }
+}
+
+#else
 void onWifiConnect(const WiFiEventStationModeGotIP& event)
 {
   STOP_WIFI_CONNCHECK_TIMER;
-  #ifdef DEBUG
-    Serial.println("Connected to Wi-Fi.");
-    Serial.println(WiFi.localIP());
-  #endif
-  #ifdef DEBUG
-    Serial.println("Connecting to MQTT...");
-  #endif    
+  Serial.println("Connected to Wi-Fi.");
+  Serial.println(WiFi.localIP());
   WiFi.onStationModeDisconnected(onWifiDisconnect);
   //only make conn persistent if we're not in config mode
   if (state_autoconfig_mode == AUTOCONF_DISABLED){      
@@ -612,8 +729,6 @@ void onWifiConnect(const WiFiEventStationModeGotIP& event)
   }
   Serial.println(WiFi.localIP());  
 }
-
-// ----------------------------------------------------------------------
 
 void onWifiDisconnect(const WiFiEventStationModeDisconnected& event)
 {
@@ -632,6 +747,8 @@ void onWifiDisconnect(const WiFiEventStationModeDisconnected& event)
   
   START_WIFI_CONNCHECK_TIMER;
 }
+#endif
+// ----------------------------------------------------------------------
 
 const char jsonFormatBattOnly[] = "{\"batt\":%s}";
 const char jsonFormatErr[] = "{\"error\":\"%s\"}";
@@ -878,8 +995,17 @@ void handleActorMsg(char* payload, int length){
 void loop(void) {
   yield();
   //delay(50);
+  #ifdef ESP32
+  esp_task_wdt_reset();
+  #endif
   loop_hw_io();
   loop_serial();
+  
+  //BLE works, but RAM is not enough and we are getting core dumps on disconnect
+  #ifdef ESP32
+  loop_ble();
+  #endif
+  
   if (state_autoconfig_mode > AUTOCONF_DISABLED){
     //we are in autoconf mode, handle only the autoconf loop
     loop_autoconf_state();
@@ -905,3 +1031,23 @@ void command_enter_config	(char* params){
 		WiFi.disconnect();
     state_autoconfig_mode = AUTOCONF_START;
 }
+
+#ifdef ESP32
+void command_ble (char* params){
+		if (strcmp(params, " on") >= 0){
+      Serial.println("Enable BLE"); 
+      mqttClient.disconnect(true);
+      delay(40);
+		  WiFi.disconnect();
+      delay(40);
+      enable_ble(); 
+      return;
+    }
+		else if (strcmp(params, " off") >= 0){
+      Serial.println("Disable BLE");  
+      disable_ble();
+      return;
+    }
+    Serial.println("on ? off ?");          
+}
+#endif
