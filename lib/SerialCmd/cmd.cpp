@@ -11,7 +11,10 @@ COMMAND_STRUCTUR COMMAND_TABELLE[] =
 	{"sp",command_set_conn_params},
 	{"st",command_stat},
 	{"ec",command_enter_config},	
+	{"ce",command_exit_config},
+	{"mr",command_mqtt_report},
 	{"fu",command_trigger_update},
+	{"pi",command_ping},
 #ifdef ESP32	
 	{"bt",command_ble},
 #endif	
@@ -27,8 +30,11 @@ const char helptext[] = {
 #endif		
 		"fs Factory settings\r\n"
 		"ec Enter config\r\n"
+		"ce Exit config\r\n"
+		"mr Send report via mqtt\r\n"
 		"st Dump status\r\n"
-		"fu Firmware update\r\n"
+		"fu <fw_version> Attempt firmware update \r\n"
+		"pi <host> Ping host\r\n"
 		"?? HELP\r\n"				
 		"\r\n"
 };
@@ -88,7 +94,7 @@ unsigned char check_serial_cmd ()
 					break;
 			}
 			if (COMMAND_TABELLE[++cmd_index].fp == NULL) {
-				Serial.println("?");
+				Serial.println("\n ??");
 				return 0;
 			}
 		}

@@ -27,7 +27,7 @@ typedef struct {
   uint16_t update_fw_ver;
   uint32_t motion_sensor_off_timer;
   char mqtt_username[32];
-  char mqtt_password[32];  
+  char mqtt_password[32];
 } settings_t ;
 
 
@@ -206,19 +206,59 @@ class EepromConfigClass {
     return true;
   }
 
+#ifdef ESP32
   boolean store_lasterr(const char* errstr){
-    if (strlen(errstr) > EEPARAM_LASTERR_LEN){
+    int ilen = strlen(errstr) ;
+    if (ilen > EEPARAM_LASTERR_LEN){
       SERIAL_DEBUG( "erstr too long");
       return false;
     }
-    EEPROM.put(EEPARAM_LASTERR_ADDR, errstr);
+    EEPROM.writeString(EEPARAM_LASTERR_ADDR, errstr);    
     EEPROM.commit();
     return true;
   }  
   
-  inline void get_lasterr(char* buff){
-    EEPROM.get(EEPARAM_LASTERR_ADDR, buff);
+  inline String get_lasterr(){
+    return EEPROM.readString(EEPARAM_LASTERR_ADDR);
   }
+#else
+//the ESP8266 lib does not have the read/writestring methods
+String get_lasterr ()
+{
+  uint16_t len = EEPARAM_LASTERR_LEN;
+
+  char value[EEPARAM_LASTERR_LEN];
+  
+  for (int i= 0; i < len; i++){
+    value[i] = EEPROM.read( EEPARAM_LASTERR_ADDR + i);
+  }
+  
+  value[len] = 0; //just to be safe, in case the mem is not initialized
+  
+  return String(value);
+}
+
+size_t store_lasterr (const char* value)
+{
+  if (!value)
+    return 0;
+
+  uint16_t len = strlen(value) + 1 ;
+  if (len > EEPARAM_LASTERR_LEN) {
+    len = EEPARAM_LASTERR_LEN;
+  }
+  
+  for (int i= 0; i < len; i++){
+    EEPROM.write( EEPARAM_LASTERR_ADDR,  value[i]);
+  }
+  EEPROM.write(EEPARAM_LASTERR_ADDR + len , 0); //string terminator
+  
+  EEPROM.commit();
+  return len;
+}
+#endif
+
+
 };
 
 EepromConfigClass EepromConfig;
@@ -241,8 +281,9 @@ EepromConfigClass EepromConfig;
     #else
     stream->printf("Chip-size %i\n", ESP.getFlashChipRealSize());    
     #endif
-    yield();
-    stream->printf("Wifi %s %s", EepromConfig.settings.ssid, EepromConfig.settings.password);
+    yield();    
+    stream->printf("Wifi %s %s ", EepromConfig.settings.ssid, EepromConfig.settings.password);
+    stream->printf("Wifi stat %i ", WiFi.status());
 		stream->printf("mqtt: %s %s %s\n", EepromConfig.settings.mqtt_server, EepromConfig.settings.mqtt_username, EepromConfig.settings.mqtt_password);
 		stream->printf("actor: %i\n", EepromConfig.settings.actor_state);
 	 };
@@ -301,7 +342,7 @@ EepromConfigClass EepromConfig;
       #endif
     }
 
-    void command_trigger_update(uint16_t fw_version){
+    void command_trigger_update(uint32 fw_version){
         if (fw_version <= FW_VERSION){
           Serial.printf("Version %i older than actual version %i \n", fw_version, FW_VERSION);
           return ;
@@ -313,7 +354,7 @@ EepromConfigClass EepromConfig;
 
     void command_trigger_update(char* params){
         
-        uint16_t fw_update_ver = atol(params);
+        uint32 fw_update_ver = atoi(params);
         command_trigger_update(fw_update_ver);
     }
 

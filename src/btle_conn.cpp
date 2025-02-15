@@ -12,12 +12,9 @@
 #include <Wire.h>
 #include <Arduino.h>
 #include "btle_conn.h"
-//Default Temperature is in Celsius
-//Comment the next line for Temperature in Fahrenheit
-#define temperatureCelsius
 
 //BLE server name
-#define bleServerName "BME280_ESP32"
+#define bleServerName "ESP32MqttNode"
 
 float temp;
 float hum;
@@ -48,6 +45,7 @@ class MyServerCallbacks: public BLEServerCallbacks {
   void onDisconnect(BLEServer* pServer) {
     Serial.println("Disconnect ");
     deviceConnected = false;
+    pServer->startAdvertising();
   }
 };
 

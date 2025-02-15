@@ -22,14 +22,14 @@ MQTT subscribtions:
  * /config/<MAC_ADDRESS> for receiving configuration messages.
 
 The config data is JSON-formatted, as follows:
-{"deepsleep":1} - enables the deep sleep mode of ESP
+{"deepsleep":1} - enables the deep sleep mode of ESP (if allowed by the firmware, actors will not allow it)
 {"location":<location_name>} - sets the location info , example {"location":"basement_door"}
 {"log_freq":<int>} - logging frequency in seconds
 {"motion_sensor_timer":<int>} - if a motion sensor is configured, the off-time of the sensor (seconds) can be configured via this parameter
-Configuration is stored in the EEPROM.
+Configuration is persisten in the flash.
 
 Report request:
-By sending a message like {"report":1} on the config topic, the device will answer with a MQTT message on the topic /report/<MAC>, reporting the firmware version, the location and the capabilities
+By sending the message {"report":1} on the config topic, the device will answer with a MQTT message on the topic /report/<MAC>, reporting the firmware version, the location and the capabilities
 The report is also sent periodically with a frequency of <log_freq>
 
 OTA:
@@ -56,6 +56,41 @@ Sonoff schematic https://www.itead.cc/wiki/File:Sonoff-Schematic.pdf
 * Manual programming:
 python esptool.py --port=COMx write_flash 0x0 firmware.bin --flash_mode <qio/qout/dio/dout>
 
+----
+
+* Strange errors, ugly bugs and other mysteries:
+
+    * Those ESP's are buggy. There is no other explanation for a lot of strange things that happen when flashing and also when operating them. The rathole is deep. 
+    * Problems I encountered: After a while, they behave erratically when programming. They don't enter programming mode, don't respect the serial console speed, garbled output, etc. It's not flash wear - the chip itself must have some problems, because it doesn't even print the boot message correctly. Reset it 1000 times, then it works again for a while. I have no logical explanation. 
+    Addendum: I had a LED lamp that was so ESR-noisy that it was interfering with the serial comm. But not sure if this was the cause - I still have some modules that don't behave right. 
+
+    * ESP32 : hit this problem https://www.esp32.com/viewtopic.php?t=1201 on a module that worked fine for many days.    
+
+```
+rst:0x10 (RTCWDT_RTC_RESET),boot:0x33 (SPI_FAST_FLASH_BOOT)
+flash read err, 1000
+Falling back to built-in command interpreter.
+OK
+```
+
+    They say: 
+```
+If we look at the ESP32 data sheet, we find that a set of pins are defined as strapping pins. What this means is that the signals present on these pins at boot time affects the operation of the device. Think of these as operational flags that are read only at boot time. The pins are:
+
+GPIO0
+GPIO2
+GPIO05
+GPIO12 - MTDI
+GPIO15 - MTDO
+
+GPIO12 (MTDI) - seems to control the voltage used for SDIO. The default is low.
+Also, in case this is an issue in production, it's actually possible to program an efuse to force the ESP32 to use a certain flash voltage and ignore GPIO12.
+
+```
+
+Addendum: this was caused by the supply falling to 2V or less. 
+
+
 ### Uploading a specific env
 
-pio run -t upload -e sonoff_switchonly
+pio run -t upload -e sonoff

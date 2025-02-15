@@ -22,7 +22,10 @@
 	extern void command_set_conn_params (char*);
 	extern void command_stat (char*);
 	extern void command_enter_config (char*);
+	extern void command_exit_config (char*);
+	extern void command_mqtt_report(char*);	
 	extern void command_trigger_update(char*);
+	extern void command_ping		(char*);
 	#ifdef ESP32
 	extern void command_ble(char*);
 	#endif

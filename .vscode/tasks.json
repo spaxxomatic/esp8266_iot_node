@@ -22,6 +22,14 @@
             "problemMatcher": [
                 "$platformio"
             ]
+        },
+        {
+            "type": "PlatformIO",
+            "task": "Upload (sonoff)",
+            "problemMatcher": [
+                "$platformio"
+            ],
+            "label": "PlatformIO: Upload (sonoff)"
         }
     ]
 }

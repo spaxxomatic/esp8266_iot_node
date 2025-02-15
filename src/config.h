@@ -3,6 +3,10 @@
 #define SONOFF_BOARD 1
 #define NODEMCU_BOARD 2
 
+#ifdef ESP32
+#define HAS_OLED_DISPLAY 
+#endif
+
 #define WIFI_AP_CONFIG "ESPCONFIGAP"
 #define WIFI_AP_CONFIG_PW "ESPCONFIGPW"
 
@@ -16,10 +20,12 @@
 //#define HAS_BUTTON
 
 
+
 #if BOARDTYPE == NODEMCU_BOARD
   #define CAPABILITIES "NODEMCU"
   #define BOARD_CONFIG_OK
-  #define ACTOR_PIN 12
+  #define ACTOR_PIN 12  
+  #define ACTOR_OUTPUT_INVERTED 1
   #define LED_BUILTIN 16
   #define LED_FLASH 2
   #ifdef HAS_MOTION_SENSOR
@@ -37,6 +43,8 @@
   #define LED_BUILTIN 13
   #define SONOFF_PIN_5 14
   #define SONOFF_BUTTON 0
+  #define ACTOR_OUTPUT_INVERTED 0
+  #define LED_FLASH LED_BUILTIN
   #define CAPABILITIES "SONOFF"
   #ifdef HAS_BUTTON
     #define BUTTON_PIN SONOFF_BUTTON    

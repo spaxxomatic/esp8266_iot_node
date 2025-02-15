@@ -34,14 +34,14 @@ def publish_firmware(source, target, env):
         firmware_name, version))
 
     url = "/".join([
-        "http://192.168.1.11:9999", "upload"
+        "http://192.168.1.5:9999", "upload"
     ])
 
     headers = {
         #"Content-type": "application/octet-stream"
     }
     
-    upload_method = 'SAMBA_UPLOAD'
+    upload_method = 'HTTP_POST_UPLOAD'
     
     if (upload_method == 'SAMBA_UPLOAD'):    
         server_share = '\\\\192.168.1.11\\nutiu\\fw_server\\'
@@ -61,7 +61,7 @@ def publish_firmware(source, target, env):
                             ("%s\n%s" % (r.status_code, r.text) if r else str(e)))
             env.Exit(1)
 
-    print("The firmware has been successfuly uploaded to repo")
+    print("The firmware has been successfuly uploaded to ota repo")
 
 
 # Custom upload command and program name

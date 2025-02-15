@@ -5,8 +5,13 @@
 
 #include "Arduino.h"
 
+#ifndef MQTT_MIN_FREE_MEMORY
+#define MQTT_MIN_FREE_MEMORY 4096
+#endif
+
 #ifdef ESP32
 #include <AsyncTCP.h>
+#include <freertos/semphr.h>
 #elif defined(ESP8266)
 #include <ESPAsyncTCP.h>
 #else
@@ -37,6 +42,14 @@
 #include "AsyncMqttClient/Packets/PubRecPacket.hpp"
 #include "AsyncMqttClient/Packets/PubCompPacket.hpp"
 
+#include "AsyncMqttClient/Packets/Out/Connect.hpp"
+#include "AsyncMqttClient/Packets/Out/PingReq.hpp"
+#include "AsyncMqttClient/Packets/Out/PubAck.hpp"
+#include "AsyncMqttClient/Packets/Out/Disconn.hpp"
+#include "AsyncMqttClient/Packets/Out/Subscribe.hpp"
+#include "AsyncMqttClient/Packets/Out/Unsubscribe.hpp"
+#include "AsyncMqttClient/Packets/Out/Publish.hpp"
+
 class AsyncMqttClient {
  public:
   AsyncMqttClient();
@@ -63,24 +76,33 @@ class AsyncMqttClient {
   AsyncMqttClient& onPublish(AsyncMqttClientInternals::OnPublishUserCallback callback);
 
   bool connected() const;
+  int getState() ;
   void connect();
   void disconnect(bool force = false);
   uint16_t subscribe(const char* topic, uint8_t qos);
   uint16_t unsubscribe(const char* topic);
   uint16_t publish(const char* topic, uint8_t qos, bool retain, const char* payload = nullptr, size_t length = 0, bool dup = false, uint16_t message_id = 0);
+  bool clearQueue();  // Not MQTT compliant!
+
+  const char* getClientId() const;
 
  private:
   AsyncClient _client;
-
-  volatile bool _connected;
-  volatile bool _connectPacketNotEnoughSpace;
-  volatile bool _disconnectFlagged;
-  bool _tlsBadFingerprint;
+  AsyncMqttClientInternals::OutPacket* _head;
+  AsyncMqttClientInternals::OutPacket* _tail;
+  size_t _sent;
+  enum {
+    CONNECTING,
+    CONNECTED,
+    DISCONNECTING,
+    DISCONNECTED
+  } _state;
+  AsyncMqttClientDisconnectReason _disconnectReason;
   uint32_t _lastClientActivity;
   uint32_t _lastServerActivity;
   uint32_t _lastPingRequestTime;
 
-  char _generatedClientId[13 + 1];  // esp8266abc123
+  char _generatedClientId[18 + 1];  // esp8266-abc123 and esp32-abcdef123456
   IPAddress _ip;
   const char* _host;
   bool _useIp;
@@ -115,23 +137,32 @@ class AsyncMqttClient {
   uint8_t _remainingLengthBufferPosition;
   char _remainingLengthBuffer[4];
 
-  uint16_t _nextPacketId;
-
   std::vector<AsyncMqttClientInternals::PendingPubRel> _pendingPubRels;
 
-  std::vector<AsyncMqttClientInternals::PendingAck> _toSendAcks;
+#if defined(ESP32)
+  SemaphoreHandle_t _xSemaphore = nullptr;
+#elif defined(ESP8266)
+  bool _xSemaphore = false;
+#endif
 
   void _clear();
   void _freeCurrentParsedPacket();
 
   // TCP
-  void _onConnect(AsyncClient* client);
-  void _onDisconnect(AsyncClient* client);
-  static void _onError(AsyncClient* client, int8_t error);
-  void _onTimeout(AsyncClient* client, uint32_t time);
-  static void _onAck(AsyncClient* client, size_t len, uint32_t time);
-  void _onData(AsyncClient* client, char* data, size_t len);
-  void _onPoll(AsyncClient* client);
+  void _onConnect();
+  void _onDisconnect();
+  // void _onError(int8_t error);
+  // void _onTimeout();
+  void _onAck(size_t len);
+  void _onData(char* data, size_t len);
+  void _onPoll();
+
+  // QUEUE
+  void _insert(AsyncMqttClientInternals::OutPacket* packet);    // for PUBREL
+  void _addFront(AsyncMqttClientInternals::OutPacket* packet);  // for CONNECT
+  void _addBack(AsyncMqttClientInternals::OutPacket* packet);   // all the rest
+  void _handleQueue();
+  void _clearQueue(bool keepSessionData);
 
   // MQTT
   void _onPingResp();
@@ -145,9 +176,5 @@ class AsyncMqttClient {
   void _onPubRec(uint16_t packetId);
   void _onPubComp(uint16_t packetId);
 
-  bool _sendPing();
-  void _sendAcks();
-  bool _sendDisconnect();
-
-  uint16_t _getNextPacketId();
+  void _sendPing();
 };
