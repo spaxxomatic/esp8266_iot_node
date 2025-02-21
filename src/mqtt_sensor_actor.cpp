@@ -296,6 +296,8 @@ void command_ping(char* host){
 
 #endif
 
+void connectToWifi();
+
 void enterConfigWifi(){
   // connect to a hardcoded AP and load configuration from a config service
   
@@ -307,7 +309,7 @@ void enterConfigWifi(){
   START_WIFI_CONNCHECK_TIMER;
   
   Serial.println("Connecting to autoconf wifi");
-  
+  //connectToWifi();
 }
 
 void exitConfigWifi(){
@@ -606,7 +608,7 @@ void setup(void) {
   setup_display();
   #endif
   #ifdef HAS_MOTION_SENSOR
-  attachInterrupt(digitalPinToInterrupt(MOTION_SENSOR_PIN), motion_sensor_irq, FALLING);
+  attachInterrupt(digitalPinToInterrupt(MOTION_SENSOR_PIN), motion_sensor_irq, ONLOW);
   #endif
   byte mac[6];
   WiFi.macAddress(mac);
@@ -939,6 +941,17 @@ void loop_autoconf_state(){
   yield();
 }
 
+void loop_conf_wifi_conn(){
+  if (f_wifi_ckconn){
+    f_wifi_ckconn = false;
+    connectToWifi();
+    yield();
+    if (WiFi.status() != WL_CONNECTED){
+      SERIAL_DEBUG("conf Wifi: not connected") ;
+    }    
+  }
+}
+
 void loop_connstack(){
     /* ----------- Communication health checks -------------*/
   if (f_wifi_ckconn){
@@ -1156,9 +1169,10 @@ void loop(void) {
   #ifdef ESP32
   loop_ble();
   #endif  
-  if (state_autoconfig_mode >= AUTOCONF_WIFI_CONNECTED){
-    //we are in autoconf mode, handle only the autoconf loop
+  if (state_autoconfig_mode >= AUTOCONF_START){
+    //we are in autoconf mode, handle only the autoconf loop    
     loop_autoconf_state();
+    loop_conf_wifi_conn();
   }else{
     loop_mqtt();
     loop_connstack();  
