@@ -387,25 +387,25 @@ volatile uint pwmval = 1;
 
 volatile bool sendActorState = false;
 Ticker timer_light_on;
+volatile bool actor_state = 0;
 
 void set_actor(){
     pwmval = 1024; 
     if (ACTOR_OUTPUT_INVERTED){
-      digitalWrite(ACTOR_PIN, !EepromConfig.settings.actor_state );
+      digitalWrite(ACTOR_PIN, !actor_state );
     }else{
-      digitalWrite(ACTOR_PIN, EepromConfig.settings.actor_state );
+      digitalWrite(ACTOR_PIN, actor_state );
     }
-    //digitalWrite(SONOFF_LED, !EepromConfig.settings.actor_state );
     sendActorState = true;
 }
 
 void actor_off(){
-    EepromConfig.settings.actor_state = 0;
+    actor_state = 0;
     set_actor();
 }
 
 void actor_on(bool permanent_on_disable_timer){
-    EepromConfig.settings.actor_state = 1;
+    actor_state = 1;
     set_actor();
     #ifdef HAS_MOTION_SENSOR
     if (! permanent_on_disable_timer)
@@ -414,7 +414,7 @@ void actor_on(bool permanent_on_disable_timer){
 }
 
 void actor_toggle(){
-    EepromConfig.settings.actor_state = !EepromConfig.settings.actor_state;
+    actor_state = !actor_state;
     set_actor();
 }
 
@@ -608,7 +608,9 @@ void setup(void) {
   setup_display();
   #endif
   #ifdef HAS_MOTION_SENSOR
-  attachInterrupt(digitalPinToInterrupt(MOTION_SENSOR_PIN), motion_sensor_irq, ONLOW);
+  pinMode(MOTION_SENSOR_PIN, INPUT);
+  
+  attachInterrupt(digitalPinToInterrupt(MOTION_SENSOR_PIN), motion_sensor_irq, FALLING);
   #endif
   byte mac[6];
   WiFi.macAddress(mac);
@@ -980,7 +982,7 @@ void loop_mqtt(){
   if (sendActorState){
     sendActorState = false;
     snprintf(tempTopicBuffer, sizeof(tempTopicBuffer), "%s/state", actor_topic);
-    itoa(EepromConfig.settings.actor_state,tempSendPayloadBuffer,10);
+    itoa(actor_state,tempSendPayloadBuffer,10);
     if (mqttClient.publish(tempTopicBuffer, 1, true, tempSendPayloadBuffer) == 0){
       SERIAL_DEBUG("MQTT pub failed") ;
       ENABLE_MQTT_CHECK_TIMER;
