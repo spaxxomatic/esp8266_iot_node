@@ -263,34 +263,6 @@ size_t store_lasterr (const char* value)
 
 EepromConfigClass EepromConfig;
 
-  void command_stat ( Stream* stream){
-		
-    byte mac[6];
-    WiFi.macAddress(mac);
-    stream->printf("MAC %02x%02x%02x%02x%02x%02x \n",mac[0],mac[1],mac[2], mac[3], mac[4], mac[5]  );		    
-    stream->printf("IP %s \n",WiFi.localIP().toString().c_str());        
-    #ifdef ESP32
-    stream->printf("Total heap: %d\n", ESP.getHeapSize());
-    stream->printf("Free heap: %d\n", ESP.getFreeHeap());    
-    #endif
-    stream->printf("Sketch-size %i\n", ESP.getSketchSize());
-    #ifdef ESP32
-    stream->printf("Chip-size %i\n", ESP.getFlashChipSize());    
-    //stream->printf("Total PSRAM: %d", ESP.getPsramSize());
-    //stream->printf("Free PSRAM: %d", ESP.getFreePsram());    
-    #else
-    stream->printf("Chip-size %i\n", ESP.getFlashChipRealSize());    
-    #endif
-    yield();    
-    stream->printf("Wifi %s %s ", EepromConfig.settings.ssid, EepromConfig.settings.password);
-    stream->printf("Wifi stat %i ", WiFi.status());
-		stream->printf("mqtt: %s %s %s\n", EepromConfig.settings.mqtt_server, EepromConfig.settings.mqtt_username, EepromConfig.settings.mqtt_password);
-		stream->printf("actor: %i\n", EepromConfig.settings.actor_state);
-	 };
-
-  void command_stat (char* params){
-    command_stat( &Serial);
-  }
 
   int command_set_conn_params (char* params, Stream* stream){
 		//char * ssid; char* pwd; char* mqtt_addr; char* mqtt_user; char* mqtt_pass;

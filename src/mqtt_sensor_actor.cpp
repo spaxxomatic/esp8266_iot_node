@@ -610,7 +610,7 @@ void setup(void) {
   #ifdef HAS_MOTION_SENSOR
   pinMode(MOTION_SENSOR_PIN, INPUT);
   
-  attachInterrupt(digitalPinToInterrupt(MOTION_SENSOR_PIN), motion_sensor_irq, FALLING);
+  attachInterrupt(digitalPinToInterrupt(MOTION_SENSOR_PIN), motion_sensor_irq, RISING);
   #endif
   byte mac[6];
   WiFi.macAddress(mac);
@@ -705,7 +705,11 @@ void setup(void) {
        Serial.println("httpUpdate abandoned, no wifi conn");
     }   
   }  
-  ESP.wdtEnable(5000);
+  
+//There is a hardware WDT and a software WDT. The HW WDT is always running and will reset the MCU after about 6 seconds if the HW WDT timer is not reset.
+//The SW WDT seems to reset the MCU at 1.5 about seconds. You can enable/disable the SW WDT, but not the HW WDT. There seems to be little point in disabling the SW WDT as you must reset it to also reset the HW WDT.
+//While you must pass a timeout value to wdtEnable, it is currently ignored.  (Don't believe me ??? look at the code)
+  ESP.wdtEnable(8000);
   START_WIFI_CONNCHECK_TIMER;
   BLINK_STOP;  
   timer_heartbeat.attach(EepromConfig.settings.log_freq, timer_heartbeat_handler);
@@ -1213,6 +1217,35 @@ void command_exit_config (char* params){
 void command_mqtt_report (char* params){            
       Serial.println(EepromConfig.get_lasterr());
       f_SendConfigReport = true;
+}
+
+void command_stat ( Stream* stream){
+		
+  byte mac[6];
+  WiFi.macAddress(mac);
+  stream->printf("MAC %02x%02x%02x%02x%02x%02x \n",mac[0],mac[1],mac[2], mac[3], mac[4], mac[5]  );		    
+  stream->printf("IP %s \n",WiFi.localIP().toString().c_str());        
+  #ifdef ESP32
+  stream->printf("Total heap: %d\n", ESP.getHeapSize());
+  stream->printf("Free heap: %d\n", ESP.getFreeHeap());    
+  #endif
+  stream->printf("Sketch-size %i\n", ESP.getSketchSize());
+  #ifdef ESP32
+  stream->printf("Chip-size %i\n", ESP.getFlashChipSize());    
+  //stream->printf("Total PSRAM: %d", ESP.getPsramSize());
+  //stream->printf("Free PSRAM: %d", ESP.getFreePsram());    
+  #else
+  stream->printf("Chip-size %i\n", ESP.getFlashChipRealSize());    
+  #endif
+  yield();    
+  stream->printf("Wifi %s %s ", EepromConfig.settings.ssid, EepromConfig.settings.password);
+  stream->printf("Wifi stat %i ", WiFi.status());
+  stream->printf("mqtt: %s %s %s\n", EepromConfig.settings.mqtt_server, EepromConfig.settings.mqtt_username, EepromConfig.settings.mqtt_password);
+  stream->printf("actor: %i\n", EepromConfig.settings.actor_state);
+ };
+
+void command_stat (char* params){
+  command_stat( &Serial);
 }
 
 #ifdef ESP32

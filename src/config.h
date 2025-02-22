@@ -25,12 +25,12 @@
   #define CAPABILITIES "NODEMCU"
   #define BOARD_CONFIG_OK
   #define ACTOR_PIN 12  
-  #define ACTOR_OUTPUT_INVERTED 1
+  #define ACTOR_OUTPUT_INVERTED 0
   #define LED_BUILTIN 16
   #define LED_FLASH 2
   #ifdef HAS_MOTION_SENSOR
     #define MOTION_SENSOR_PIN 14
-    #define MOTION_SENSOR_DEFAULT_TIMER 4    
+    #define MOTION_SENSOR_DEFAULT_TIMER 2    
   #endif
   #ifdef HAS_BUTTON
     #define BUTTON_PIN 0    
